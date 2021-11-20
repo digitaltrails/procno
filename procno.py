@@ -321,10 +321,10 @@ SVG_TOOLBAR_NOTIFIER_DISABLED = b"""
 </svg>
 """
 
-
 system_boot_time = psutil.boot_time()
 system_vm_kbytes = psutil.virtual_memory().total / 1024
 system_ticks_per_second = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+
 
 class ConfigOption:
 
@@ -386,6 +386,27 @@ def error(*arg):
 def tr(source_text: str):
     """For future internationalization - recommended way to do this at this time."""
     return QCoreApplication.translate('procno', source_text)
+
+
+# Starting colors, when they run out we use a random selection
+# TODO allow colors to be set in the config file some how.
+user_colors = [0xb4beee, 0xb0dcd5, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xe7e4bb,
+               0xf0e0b9, 0xc0d3ee, 0xb5c3f0, ]
+
+roots_color = 0xd2d2d2
+
+def random_color(mix):
+    # https://newbedev.com/algorithm-to-randomly-generate-an-aesthetically-pleasing-color-palette
+    # Changed 127 to 168 to make the colors lighter
+    red = random.randint(168, 256)
+    green = random.randint(168, 256)
+    blue = random.randint(168, 256)
+    # mix the color
+    if mix is not None:
+        red = (red + mix[0]) // 2
+        green = (green + mix[1]) // 2
+        blue = (blue + mix[2]) // 2
+    return red, green, blue
 
 
 def exception_handler(e_type, e_value, e_traceback):
@@ -1340,14 +1361,14 @@ class ProcessControlWidget(QWidget):
         ]
         signal_combo_box = QComboBox()
         signal_combo_box.setEnabled(False)
-        #signal_combo_box.setCurrentIndex(-1)
+        # signal_combo_box.setCurrentIndex(-1)
         for sig, desc in allowed_signals:
             signal_combo_box.addItem(desc, sig)
 
         def signal_process(index: int):
             try:
                 os.kill(process_info.pid, signal_combo_box.itemData(index))
-                signal_combo_box.setCurrentIndex(-1)
+                #signal_combo_box.setCurrentIndex(-1)
             except Exception as e:
                 alert = QMessageBox(parent=self)
                 alert.setText(tr("Failed to signal PID {}").format(process_info.pid))
@@ -1363,7 +1384,7 @@ class ProcessControlWidget(QWidget):
         def arm_signal_button(enable: bool):
             signal_combo_box.setEnabled(not enable)
             signal_label.setEnabled(not enable)
-            #signal_combo_box.setCurrentIndex(-1)
+            # signal_combo_box.setCurrentIndex(-1)
             safety_catch.setText(self.safety_text_pair[0] if enable else self.safety_text_pair[1])
             palette_copy = safety_catch.palette()
             palette_copy.setColor(QPalette.Base, self.safety_default_color if enable else QColor(255, 0, 0))
@@ -1394,13 +1415,11 @@ class ProcessControlWidget(QWidget):
 
 
 class ProcessDotsWidget(QLabel):
-
     signal_new_data = pyqtSignal()
 
     def __init__(self, parent: QMainWindow):
         super().__init__(parent=parent)
         self.setObjectName("process_grid_window")
-
         self.allocated_position = {}
         self.available_positions = []
         self.setAutoFillBackground(True)
@@ -1431,12 +1450,12 @@ class ProcessDotsWidget(QLabel):
         # self.setMinimumWidth(500)
         # self.setMinimumHeight(500)
         self.setLayout(QVBoxLayout())
+        self.rgb = (200, 255, 255)
 
     def update_settings_from_config(self):
         info('GUI reading config.')
         global debugging
         debugging = self.config.getboolean('options', 'debug', fallback=False)
-        self.notifications_enabled = self.config.getboolean()
         info("Debugging output is disabled.") if not debugging else None
 
     def update_data(self, data: Mapping):
@@ -1455,15 +1474,33 @@ class ProcessDotsWidget(QLabel):
         else:
             self.re_target = re.compile(text if re_enabled else re.escape(text))
 
-    def update_pixmap(self):
+    def choose_user_color(self, process_info: ProcessInfo) -> QColor:
+        if process_info.context is not None:
+            color = process_info.context[0]
+        else:
+            real_uid = process_info.real_uid
+            if real_uid == '0':
+                global roots_color
+                color = QColor(roots_color)
+            elif real_uid in self.color_of_user_map:
+                color = self.color_of_user_map[real_uid]
+            else:
+                global user_colors
+                if len(user_colors) != 0:
+                    color = QColor(user_colors[0])
+                    user_colors = user_colors[1:]
+                else:
+                    random.seed(process_info.real_uid)
+                    r, g, b = random_color((0xc0, 0xd3, 0xee))
+                    color = QColor(r, g, b)
+            self.color_of_user_map[real_uid] = color
+        return color
 
+    def update_pixmap(self):
         if self.data is None or len(self.data) == 0:
             return
-
         self.row_length = self.width() // self.spacing - 1
         wobble_size = self.dot_diameter // 3
-
-        roots_color = QColor(210, 210, 210)
 
         # rss_ring_area_unit = Area of the Gig ring divided by gig_rss (Kbytes quantity)
         rss_ring_area_unit = self.pi_over_4 * (self.gig_ring_diameter ** 2) / self.gig_rss
@@ -1483,26 +1520,15 @@ class ProcessDotsWidget(QLabel):
                 self.rss_max = process_info.rss
             cpu_pp = process_info.current_cpu_percent
             if cpu_pp > 10.0:
-                red_intensity = 200 - (int(cpu_pp) if cpu_pp < 100.0 else 100)
-                color = QColor(255, red_intensity, red_intensity)
+                red_intensity = 180 - (int(cpu_pp) if cpu_pp < 100.0 else 100)
+                dot_color = QColor(255, red_intensity, red_intensity)
             elif cpu_pp > 0.0:
-                color = self.color_of_minor_cpu_usage
+                dot_color = self.color_of_minor_cpu_usage
             elif process_info.new_process:
-                color = self.color_of_new_process  # 0xf8b540 0x21c81f
+                dot_color = self.color_of_new_process  # 0xf8b540 0x21c81f
             else:
-                real_uid = process_info.real_uid
-                if real_uid == '0':
-                    color = roots_color
-                elif process_info.context is not None:
-                    color = process_info.context[0]
-                else:
-                    if real_uid in self.color_of_user_map:
-                        color = self.color_of_user_map[real_uid]
-                    else:
-                        random.seed(process_info.real_uid)
-                        color = QColor(random.randint(210, 240), random.randint(210, 240), random.randint(210, 240))
-                        self.color_of_user_map[real_uid] = color
-                    process_info.context = (color,)
+                dot_color = self.choose_user_color(process_info)
+                process_info.context = (dot_color,)
 
             x = (i % self.row_length) * self.spacing + self.spacing
             y = (i // self.row_length) * self.spacing + self.spacing
@@ -1521,9 +1547,9 @@ class ProcessDotsWidget(QLabel):
 
             # if process_info.previous_paint_values != paint_values:
             # Need to paint everything in case the canvas has been cleared for some reason
-            dot_painter.setPen(QPen(color))
+            dot_painter.setPen(QPen(dot_color))
             dot_painter.setOpacity(1.0)
-            dot_painter.setBrush(color)
+            dot_painter.setBrush(dot_color)
             dot_painter.drawEllipse(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter)
             dot_painter.setPen(rss_ring_pen)
             dot_painter.setBrush(Qt.NoBrush)
@@ -1556,24 +1582,13 @@ class ProcessDotsWidget(QLabel):
         print('now')
         self.update_pixmap()
         event.accept()
-        # self.row_length = self.width() // self.spacing - 1
-        # min_height = self.spacing * (len(self.data) // self.row_length + 3)
-        # QGuiApplication.primaryScreen().size().height()
-        # if min_height < QGuiApplication.primaryScreen().size().height() - 300:
-        #     self.setMaximumHeight(min_height)
-        #     self.setMinimumWidth(self.width())
-        #     self.update_pixmap()
-        #
-        # else:
-        #     self.setMinimumWidth(0)
-        # event.accept()
-
-
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        process_info = self.get_process_info(event)
-        if process_info is not None:
-            if self.show_tips:
+        if self.show_tips:
+            process_info = self.get_process_info(event)
+            if process_info is None:
+                QToolTip.hideText()
+            else:
                 QToolTip.showText(event.globalPos(), str(process_info))
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -1600,18 +1615,6 @@ class ProcessDotsWidget(QLabel):
                 self.dot_diameter = new_dot_diameter
                 self.spacing = 3 * self.dot_diameter // 2
         event.accept()
-
-    def is_notifying(self) -> bool:
-        return self.notifications_enabled
-
-    def enable_notifications(self, enable: bool) -> None:
-        self.notifications_enabled = enable
-
-    # def event(self, e: QEvent) -> bool:
-    #     print(e.type())
-    #     if e.type() == QEvent.HoverMove or e.type() == QEvent.HoverEnter:
-    #         QToolTip.showText(e.globalPos(), "test")
-    #     return super().event(e)
 
 
 class MainWindow(QMainWindow):
