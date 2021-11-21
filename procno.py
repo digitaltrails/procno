@@ -1012,13 +1012,13 @@ class ColorPalette:
                                      0xf0e0b9, 0xc0d3ee, 0xb5c3f0, ]]
 
     def to_hex(self, color: QColor):
-        return color.name().replace("#", "0x")
+        return color.name()
 
     def set_color(self, name: str, hex: str):
         if name.startswith('user_'):
-            self.user_color_map[name[len('user_'):]] = QColor(int(hex, 16))
+            self.user_color_map[name[len('user_'):]] = QColor(hex)
         else:
-            self.__setattr__(name, QColor(int(hex, 16)))
+            self.__setattr__(name, QColor(hex))
 
     def get_color_map(self) -> Mapping[str, str]:
         return {
@@ -1049,11 +1049,11 @@ class ColorPalette:
 
     def copy_from_config(self, config_section: Mapping[str, str]):
         for name, value in config_section.items():
-            self.set_color(name, value)
+            self.set_color(name, value.replace("0x", "#"))
 
     def copy_to_config(self, config_section: Mapping[str, str]):
         for name, value in self.get_color_map():
-            config_section[name] = value
+            config_section[name] = value.repace("#", "0x")
 
 
 global_colors = ColorPalette()
@@ -1061,22 +1061,22 @@ global_colors = ColorPalette()
 
 def add_color_swatch(color_label: QPushButton, value: str):
     color_label.setPPixmap(create_pixmap_from_svg_bytes(
-        SVG_COLOR_SWATCH.replace(b'#000000', value.replace('0x', '#').encode('UTF-8'))))
+        SVG_COLOR_SWATCH.replace(b'#000000', value.encode('UTF-8'))))
     return color_label
 
 
 class ColorEditor:
     def __init__(self, parent: QWidget, color_name: str, hex: str):
-        self.color = QColor(hex.replace("0x", "#"))
+        self.color = QColor(hex)
         self.color_name_label = QLabel(color_name)
 
-        def dialog_color_changed(color: QColor):
+        def dialog_color_selected(color: QColor):
             self.color = color
             self.set_swatch_color(color)
-            self.input_widget.setText(color.name().replace("#", "0x"))
+            self.input_widget.setText(color.name())
 
         dialog = QColorDialog(parent)
-        dialog.currentColorChanged.connect(dialog_color_changed)
+        dialog.colorSelected.connect(dialog_color_selected)
 
         def show_color_chooser():
             dialog.setCurrentColor(self.color)
@@ -1087,12 +1087,13 @@ class ColorEditor:
         self.color_swatch.clicked.connect(show_color_chooser)
 
         def editor_color_changed():
-            self.color = QColor(self.input_widget.text().replace("0x", "#"))
+            self.color = QColor(self.input_widget.text())
             self.set_swatch_color(self.color)
 
         self.input_widget = QLineEdit()
+        #self.input_widget.setInputMask('#HHHHHH')
         self.input_widget.setText(hex)
-        self.input_widget.editingFinished.connect(editor_color_changed)
+        self.input_widget.textChanged.connect(editor_color_changed)
 
     def set_swatch_color(self, color: QColor):
         self.color_swatch.setAutoFillBackground(True)
