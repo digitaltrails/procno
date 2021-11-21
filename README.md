@@ -3,6 +3,11 @@ Procno: Process monitor and notifications forwarder
 
 A GUI procfs stat viewer with Freedesktop-Notifications forwarding. Kind of like ``top``, but not as we know it.
 
+***This code is hot of the presses.  If you've found your way here by chance, please feel free to try it out, but 
+be warned I'm actively adding code. Features may change on a daily basis.***  That said, the code is 
+usually quite functional, I don't push it here unless I think it's solid.  I've had some success using it to 
+detect runaway processes, such as chrome suddenly deciding to burn a CPU continuously. Ideas or feedback is welcome.
+
 Description
 -----------
 
@@ -28,6 +33,7 @@ excessive CPU or memory by forwarding messages to the desktop as standard *Freed
    + Dynamic (no restart) support for desktop theme changes, including light/dark theme switching.
    + An option to run minimised in the system-tray with a quick-access tray context-menu.
    + Full configuration UI, editing of config INI files is not required.
+   + The configuration UI includes a tab for customising many of the colors, including each user's color.
    + If Config INI files are externally edited, the changes are automatically reloaded without requiring a restart.
 
 
