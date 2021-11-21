@@ -154,9 +154,10 @@ import dbus
 import procfs
 import psutil
 from PyQt5.QtCore import QCoreApplication, QProcess, Qt, pyqtSignal, QThread, QSize, \
-    QEvent, QSettings, QObject
+    QEvent, QSettings, QObject, QRegExp
 from PyQt5.QtGui import QPixmap, QIcon, QImage, QPainter, QIntValidator, \
-    QFontDatabase, QCloseEvent, QPalette, QColor, QPen, QMouseEvent, QWheelEvent, QGuiApplication, QResizeEvent
+    QFontDatabase, QCloseEvent, QPalette, QColor, QPen, QMouseEvent, QWheelEvent, QGuiApplication, QResizeEvent, \
+    QRegExpValidator
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLineEdit, QLabel, \
     QPushButton, QSystemTrayIcon, QMenu, QTextEdit, QDialog, QCheckBox, QGridLayout, QMainWindow, QSizePolicy, QToolBar, \
@@ -1069,8 +1070,10 @@ def add_color_swatch(color_label: QPushButton, value: str):
 
 class ColorEditor:
     def __init__(self, parent: QWidget, color_name: str, hex: str):
+        tip = tr("Click on a color swatch to bing up the color selection dialog.")
         self.color = QColor(hex)
         self.color_name_label = QLabel(color_name)
+        self.color_name_label.setToolTip(tip)
 
         def dialog_color_selected(color: QColor):
             self.color = color
@@ -1087,15 +1090,17 @@ class ColorEditor:
         self.color_swatch = QPushButton()
         self.set_swatch_color(self.color)
         self.color_swatch.clicked.connect(show_color_chooser)
+        self.color_swatch.setToolTip(tip)
 
         def editor_color_changed():
             self.color = QColor(self.input_widget.text())
             self.set_swatch_color(self.color)
 
         self.input_widget = QLineEdit()
-        #self.input_widget.setInputMask('#HHHHHH')
+        self.input_widget.setValidator(QRegExpValidator(QRegExp("#[A-Fa-f0-9]{6}")))
         self.input_widget.setText(hex)
         self.input_widget.textChanged.connect(editor_color_changed)
+        self.input_widget.setToolTip(tip)
 
     def set_swatch_color(self, color: QColor):
         self.color_swatch.setAutoFillBackground(True)
