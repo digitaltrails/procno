@@ -677,10 +677,10 @@ class ProcessInfo:
             f"PID: {self.pid}\ncomm: {self.comm}\ncmdline: {cmdline_text}\n" + \
             f"CPU: {self.current_cpu_percent:2.0f}% utime: {self.utime} stime: {self.stime}\n" + \
             f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss}\n" + \
-            f"Start_time: {self.start_time_text}\n" + \
-            f"Real_UID: {self.real_uid} Username={self.username}\n" + \
-            f"Effective_UID: {self.effective_uid}" + \
-            ('' if self.effective_username is None else f" Effective_Username={self.effective_username}")
+            f"Started: {self.start_time_text}\n" + \
+            f"Real_UID: {self.real_uid} User={self.username}" + \
+            ('' if self.effective_uid == self.real_uid else f"\nEffective_UID: {self.effective_uid}") + \
+            ('' if self.effective_username is None else f" Effective_User={self.effective_username}")
 
     def __str__(self):
         return self.text()
