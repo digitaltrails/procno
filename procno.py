@@ -142,6 +142,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 # TODO zoom in should do more than just enlarge - annotate?
 # TODO Help
 # TODO night palette option?
+# TODO try a brighter less-pastel palette
 #
 import argparse
 import configparser
