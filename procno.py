@@ -244,18 +244,20 @@ SVG_LIGHT_THEME_COLOR = b"#232629"
 SVG_DARK_THEME_COLOR = b"#f3f3f3"
 
 SVG_PROGRAM_ICON = b"""
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
- <path fill="#232629" style="fill:currentColor;fill-opacity:1;stroke:none" 
-      d="M 4 2 L 4 3 L 13 3 L 13 13 L 4 13 L 4 14 L 13 14 L 14 14 L 14 3 L 14 2 L 7 2 z"
-      class="ColorScheme-Text"
-     />
- <path fill="#3491e1" style="fill-opacity:1;stroke:none" 
-      d="M 8 6 L 8 8 L 12 8 L 12 7 L 8 7 z M 8 8 L 8 10 L 12 10 L 12 9 L 8 9 z M 8 11 L 8 12 L 12 12 L 12 11 L 10 11 z "
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
 
-     />
+    <circle cx="5" cy="5" r="2" fill="#3491e1"/>
+    <circle cx="10" cy="5" r="2" fill="#3491e1"/>
+    <circle cx="15" cy="5" r="2" fill="#da4453"/>
+    <circle cx="5" cy="10" r="2" fill="#3491e1"/>
+    <circle cx="10" cy="10" r="2" fill="#3491e1"/>
+    <circle cx="15" cy="10" r="2" fill="#3491e1"/>
+    <circle cx="5" cy="15" r="2" fill="#3491e1"/>
+    <circle cx="10" cy="15" r="2" fill="#3491e1"/>
+    <circle cx="15" cy="15" r="2" fill="#3491e1"/>
 
-</svg>
-"""
+</svg>"""
+
 SVG_PROGRAM_ICON_LIGHT = SVG_PROGRAM_ICON.replace(SVG_LIGHT_THEME_COLOR, b'#bbbbbb')
 
 SVG_TOOLBAR_RUN_DISABLED = b"""
@@ -1638,7 +1640,8 @@ class ProcessDotsWidget(QLabel):
             self.update_pixmap()
             self.repaint()
         else:
-            debug("not visible") if debugging else None
+            pass
+            # debug("not visible") if debugging else None
         self.signal_new_data.emit()
 
     def highlight_matches(self, text: str, re_enabled: bool):
