@@ -1496,7 +1496,7 @@ class MainContextMenu(QMenu):
             self.notifier_action.setIcon(self.icon_notifier_enabled)
 
 
-class ProcessControlWidget(QWidget):
+class ProcessControlWidget(QDialog):
     def __init__(self, process_info: ProcessInfo, parent: QWidget):
         super().__init__(parent=parent)
         self.setWindowFlag(True)
@@ -1751,7 +1751,7 @@ class ProcessDotsWidget(QLabel):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         process_info = self.get_process_info(event)
         if process_info is not None:
-            info_widget = ProcessControlWidget(process_info, self)
+            info_widget = ProcessControlWidget(process_info, self.parent())
             self.signal_new_data.connect(info_widget.update_data)
             info_widget.show()
             event.ignore()
