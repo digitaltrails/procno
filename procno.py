@@ -133,6 +133,16 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 ----------
 
 """
+# TODO see if psutils is faster than procfs - certainly seems better documented
+# TODO IO
+# TODO vsize ring?
+# TODO random color suggestion button
+# TODO make the random color picker pick colors distant from the last pick - maybe feed it an invert of the last pick.
+# TODO input validation (more)
+# TODO zoom in should do more than just enlarge - annotate?
+# TODO Help
+# TODO night palette option?
+#
 import argparse
 import configparser
 import math
