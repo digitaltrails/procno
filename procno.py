@@ -160,7 +160,8 @@ from PyQt5.QtGui import QPixmap, QIcon, QImage, QPainter, QIntValidator, \
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLineEdit, QLabel, \
     QPushButton, QSystemTrayIcon, QMenu, QTextEdit, QDialog, QCheckBox, QGridLayout, QMainWindow, QSizePolicy, QToolBar, \
-    QHBoxLayout, QStyleFactory, QToolButton, QScrollArea, QLayout, QStatusBar, QToolTip, QComboBox
+    QHBoxLayout, QStyleFactory, QToolButton, QScrollArea, QLayout, QStatusBar, QToolTip, QComboBox, QTabWidget, \
+    QColorDialog
 
 PROGRAM_VERSION = '0.9.0'
 
@@ -206,6 +207,14 @@ notify_cpu_use_percent = 100
 notify_cpu_use_seconds = 30
 notify_rss_exceeded_mbytes = 1000
 notify_rss_growing_seconds = 5
+
+[colors]
+
+cpu_activity_color = 0x3491e1
+new_process_color = 0xf8b540
+search_match_color = 0xff0000
+root_user_color = 0xd2d2d2
+
 '''
 
 ICON_HELP_ABOUT = "help-about"
@@ -321,6 +330,17 @@ SVG_TOOLBAR_NOTIFIER_DISABLED = b"""
 </svg>
 """
 
+SVG_COLOR_SWATCH = b"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
+    <style type="text/css" id="current-color-scheme">
+        .ColorScheme-Text {
+            color:#000000;
+        }
+    </style>
+    <path d="m3 3h16v16h-16z" class="ColorScheme-Text" fill="currentColor"/>
+</svg>
+"""
+
 system_boot_time = psutil.boot_time()
 system_vm_kbytes = psutil.virtual_memory().total / 1024
 system_ticks_per_second = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
@@ -388,14 +408,9 @@ def tr(source_text: str):
     return QCoreApplication.translate('procno', source_text)
 
 
-# Starting colors, when they run out we use a random selection
-# TODO allow colors to be set in the config file some how.
-user_colors = [0xb4beee, 0xb0dcd5, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xe7e4bb,
-               0xf0e0b9, 0xc0d3ee, 0xb5c3f0, ]
-
-roots_color = 0xd2d2d2
-
-def random_color(mix):
+def random_color(mix, seed: int = None):
+    if seed:
+        random.seed(seed)
     # https://newbedev.com/algorithm-to-randomly-generate-an-aesthetically-pleasing-color-palette
     # Changed 127 to 168 to make the colors lighter
     red = random.randint(168, 256)
@@ -480,12 +495,13 @@ class Config(configparser.ConfigParser):
             self.modified_time = modified_time
             info(f"Config: reading {self.path}")
             config_text = self.path.read_text()
-            for section in ['match', 'ignore']:
+            for section in ['colors', ]:
                 self.remove_section(section)
             self.read_string(config_text)
-            for section in ['options', 'match', 'ignore']:
+            for section in ['options', 'colors', ]:
                 if section not in self:
                     self[section] = {}
+            global_colors.copy_from_config(self['colors'])
             return True
         if self.modified_time > 0.0:
             info(f"Config file has been deleted: {self.path}")
@@ -615,7 +631,7 @@ class ProcessInfo:
         except KeyError as e:
             self.username = '<no name>'
             self.effective_username = None
-        self.context = None
+        self.user_color = None
 
     def updated(self, item: Mapping, cpu_burn_ratio, rss_exceeded_mbytes):
         # Trying to be frugal, not copying to a new ProcInfo, might mean the GUI sees the object as it's
@@ -955,7 +971,6 @@ class OptionsPanel(QWidget):
             if column_number == 0:
                 spacer = QLabel("\u2003\u2003")
                 grid_layout.addWidget(spacer, row_number, 2)
-        grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         scroll_area = QScrollArea(self)
         container = QWidget(scroll_area)
         container.setLayout(grid_layout)
@@ -981,6 +996,152 @@ class OptionsPanel(QWidget):
             else:
                 if widget.text().strip() != "":
                     config_section[option_id] = widget.text()
+
+
+class ColorPalette:
+    def __init__(self):
+        self.user_color_map: Mapping[str, int] = {}
+        self.cpu_activity_color = QColor(0x3491e1)
+        self.rss_color = QColor(0x000000)
+        self.new_process_color = QColor(0xf8b540)
+        self.search_match_color = QColor(0xff0000)
+        self.root_user_color = QColor(0xd2d2d2)
+        # Starting colors, when they run out we use a random selection
+        self.default_user_colors = [QColor(c) for c in
+                                    [0xb4beee, 0xb0dcd5, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xe7e4bb,
+                                     0xf0e0b9, 0xc0d3ee, 0xb5c3f0, ]]
+
+    def to_hex(self, color: QColor):
+        return color.name().replace("#", "0x")
+
+    def set_color(self, name: str, hex: str):
+        if name.startswith('user_'):
+            self.user_color_map[name[len('user_'):]] = QColor(int(hex, 16))
+        else:
+            self.__setattr__(name, QColor(int(hex, 16)))
+
+    def get_color_map(self) -> Mapping[str, str]:
+        return {
+            **{n: self.to_hex(v) for n, v in self.__dict__.items() if n.endswith('_color')},
+            **{'user_' + n: self.to_hex(v) for n, v in self.user_color_map.items()}
+        }
+
+    def choose_user_color(self, real_uid) -> QColor:
+        username = pwd.getpwuid(int(real_uid)).pw_name
+        if real_uid == '0':
+            return self.root_user_color
+
+        if username in self.user_color_map:
+            return self.user_color_map[username]
+
+        used_colors = self.user_color_map.values()
+        while len(self.default_user_colors) != 0:
+            color = QColor(self.default_user_colors[0])
+            self.default_user_colors = self.default_user_colors[1:]
+            if color not in used_colors:
+                self.user_color_map[username] = color
+                return color
+
+        r, g, b = random_color((0xc0, 0xd3, 0xee), seed=real_uid)
+        color = QColor(r, g, b)
+        self.user_color_map[username] = color
+        return color
+
+    def copy_from_config(self, config_section: Mapping[str, str]):
+        for name, value in config_section.items():
+            self.set_color(name, value)
+
+    def copy_to_config(self, config_section: Mapping[str, str]):
+        for name, value in self.get_color_map():
+            config_section[name] = value
+
+
+global_colors = ColorPalette()
+
+
+def add_color_swatch(color_label: QPushButton, value: str):
+    color_label.setPPixmap(create_pixmap_from_svg_bytes(
+        SVG_COLOR_SWATCH.replace(b'#000000', value.replace('0x', '#').encode('UTF-8'))))
+    return color_label
+
+
+class ColorEditor:
+    def __init__(self, parent: QWidget, color_name: str, hex: str):
+        self.color = QColor(hex.replace("0x", "#"))
+        self.color_name_label = QLabel(color_name)
+
+        def dialog_color_changed(color: QColor):
+            self.color = color
+            self.set_swatch_color(color)
+            self.input_widget.setText(color.name().replace("#", "0x"))
+
+        dialog = QColorDialog(parent)
+        dialog.currentColorChanged.connect(dialog_color_changed)
+
+        def show_color_chooser():
+            dialog.setCurrentColor(self.color)
+            dialog.show()
+
+        self.color_swatch = QPushButton()
+        self.set_swatch_color(self.color)
+        self.color_swatch.clicked.connect(show_color_chooser)
+
+        def editor_color_changed():
+            self.color = QColor(self.input_widget.text().replace("0x", "#"))
+            self.set_swatch_color(self.color)
+
+        self.input_widget = QLineEdit()
+        self.input_widget.setText(hex)
+        self.input_widget.editingFinished.connect(editor_color_changed)
+
+    def set_swatch_color(self, color: QColor):
+        self.color_swatch.setAutoFillBackground(True)
+        palette = self.color_swatch.palette()
+        palette.setColor(QPalette.Button, color)
+        self.color_swatch.setPalette(palette)
+        self.color_swatch.update()
+
+
+class ColorPalettePanel(QWidget):
+    def __init__(self, config_section: Mapping[str, str], parent: QWidget = None):
+        super().__init__(parent=parent)
+        self.editor_map: Mapping[str, ColorEditor] = {}
+        scroll_area = QScrollArea(self)
+        container = QWidget(scroll_area)
+        self.grid_layout = QGridLayout()
+        self.layout_ui()
+        container.setLayout(self.grid_layout)
+        scroll_area.setWidget(container)
+        layout = QVBoxLayout()
+        layout.addWidget(scroll_area)
+        self.setLayout(layout)
+
+    def layout_ui(self):
+        self.editor_map = {}
+        grid_layout = self.grid_layout
+        for widget in grid_layout.children():
+            self.grid_layout.removeWidget(widget)
+        col_sequence = (1, 3, 6)
+        row_number = 0
+        for i, (color_name, value) in enumerate(global_colors.get_color_map().items()):
+            row_number += 2 if i % len(col_sequence) == 0 else 0
+            column_number = col_sequence[i % len(col_sequence)]
+            color_editor = ColorEditor(self, color_name, value)
+            self.editor_map[color_name] = color_editor
+            grid_layout.addWidget(color_editor.color_name_label, row_number, column_number, 1, 2, alignment=Qt.AlignLeft)
+            grid_layout.addWidget(color_editor.color_swatch, row_number + 1, column_number)
+            grid_layout.addWidget(color_editor.input_widget, row_number + 1, column_number + 1, 1, 1, alignment=Qt.AlignLeft)
+        grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        grid_layout.setHorizontalSpacing(20)
+
+    def copy_from_config(self, config_section: Mapping[str, str]):
+        global_colors.copy_from_config(config_section)
+        self.layout_ui()
+
+    def copy_to_config(self, config_section: Mapping[str, str]):
+        for option_id, editor in self.editor_map.items():
+            global_colors.set_color(option_id, editor.input_widget.text())
+            config_section[option_id] = editor.input_widget.text()
 
 
 class ConfigWatcherTask(QThread):
@@ -1021,10 +1182,14 @@ class ConfigPanel(QDialog):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         title_layout.addWidget(spacer)
 
+        tabs = QTabWidget()
+        self.tabs = tabs
+
         self.config = Config()
         self.config.refresh()
 
         options_panel = OptionsPanel(self.config['options'], parent=self)
+        color_palette_panel = ColorPalettePanel(self.config['colors'], parent=self)
 
         button_box = QWidget()
         button_box_layout = QHBoxLayout()
@@ -1045,6 +1210,7 @@ class ConfigPanel(QDialog):
             debug("save action") if debugging else None
             tmp = Config()
             options_panel.copy_to_config(tmp['options'])
+            color_palette_panel.copy_to_config(tmp['colors'])
             if not self.config.is_different(tmp):
                 apply_message = QMessageBox(self)
                 apply_message.setText(tr('There are no changes to apply. Apply and save anyway?'))
@@ -1053,16 +1219,18 @@ class ConfigPanel(QDialog):
                 if apply_message.exec() == QMessageBox.Cancel:
                     return
             options_panel.copy_to_config(self.config['options'])
+            color_palette_panel.copy_to_config(self.config['colors'])
             self.config.save()
             self.status_bar.showMessage("All changes have been saved.", 5000)
             debug(f'config saved ok') if debugging else None
-
+            config_change()
         apply_button.clicked.connect(save_action)
 
         def revert_action():
             debug("revert") if debugging else None
             tmp = Config()
             options_panel.copy_to_config(tmp['options'])
+            color_palette_panel.copy_to_config(tmp['colors'])
             if not self.config.is_different(tmp):
                 revert_message = QMessageBox(self)
                 revert_message.setText(tr('There are no unapplied changes. There is nothing to revert.'))
@@ -1085,19 +1253,20 @@ class ConfigPanel(QDialog):
         def reload_from_config():
             info("UI reloading config from file.") if debugging else None
             options_panel.copy_from_config(self.config['options'])
+            color_palette_panel.copy_from_config(self.config['colors'])
 
         revert_button.clicked.connect(revert_action)
 
-        # tabs.addTab(options_panel, tr("Options"))
-        # tabs.setCurrentIndex(0)
-        #
-        # tabs.setTabToolTip(0, tr("Ignored-messages will be excluded from desktop-notifications."))
-        # tabs.setTabToolTip(1, tr("Matched-messages will be included in desktop-notifications (excluding all others)."))
-        # tabs.setTabToolTip(2, tr("Application configuration options."))
+        tabs.addTab(options_panel, tr("Options"))
+        tabs.setTabToolTip(0, tr("Application configuration options."))
+        tabs.setCurrentIndex(0)
+
+        tabs.addTab(color_palette_panel, tr("Colors"))
+        tabs.setTabToolTip(1, tr("Color options."))
 
         layout.addWidget(title_container)
 
-        layout.addWidget(options_panel)
+        layout.addWidget(tabs)
         layout.addWidget(self.status_bar)
 
         self.setWindowTitle(tr("Configuration"))
@@ -1374,7 +1543,7 @@ class ProcessControlWidget(QWidget):
         def signal_process(index: int):
             try:
                 os.kill(process_info.pid, signal_combo_box.itemData(index))
-                #signal_combo_box.setCurrentIndex(-1)
+                # signal_combo_box.setCurrentIndex(-1)
             except Exception as e:
                 alert = QMessageBox(parent=self)
                 alert.setText(tr("Failed to signal PID {}").format(process_info.pid))
@@ -1439,8 +1608,6 @@ class ProcessDotsWidget(QLabel):
         self.dot_diameter = 24
         self.config = Config()
         self.show_tips = True
-        self.color_of_minor_cpu_usage = QColor(0x3491e1)
-        self.color_of_new_process = QColor(0xf8b540)
         self.color_of_user_map = {}
         self.row_length = 0
         self.rss_max = 100
@@ -1459,10 +1626,9 @@ class ProcessDotsWidget(QLabel):
         self.rgb = (200, 255, 255)
 
     def update_settings_from_config(self):
-        info('GUI reading config.')
-        global debugging
-        debugging = self.config.getboolean('options', 'debug', fallback=False)
-        info("Debugging output is disabled.") if not debugging else None
+        info('Dot widget clearing cached user colors.')
+        for process_info in self.data:
+            process_info.user_color = None
 
     def update_data(self, data: Mapping):
         self.past_data = self.data
@@ -1481,25 +1647,12 @@ class ProcessDotsWidget(QLabel):
             self.re_target = re.compile(text if re_enabled else re.escape(text))
 
     def choose_user_color(self, process_info: ProcessInfo) -> QColor:
-        if process_info.context is not None:
-            color = process_info.context[0]
+        if process_info.user_color is not None:
+            color = process_info.user_color
         else:
-            real_uid = process_info.real_uid
-            if real_uid == '0':
-                global roots_color
-                color = QColor(roots_color)
-            elif real_uid in self.color_of_user_map:
-                color = self.color_of_user_map[real_uid]
-            else:
-                global user_colors
-                if len(user_colors) != 0:
-                    color = QColor(user_colors[0])
-                    user_colors = user_colors[1:]
-                else:
-                    random.seed(process_info.real_uid)
-                    r, g, b = random_color((0xc0, 0xd3, 0xee))
-                    color = QColor(r, g, b)
-            self.color_of_user_map[real_uid] = color
+            color = global_colors.choose_user_color(process_info.real_uid)
+        # Cache it for quick access
+        process_info.user_color = color
         return color
 
     def update_pixmap(self):
@@ -1510,17 +1663,17 @@ class ProcessDotsWidget(QLabel):
 
         # rss_ring_area_unit = Area of the Gig ring divided by gig_rss (Kbytes quantity)
         rss_ring_area_unit = self.pi_over_4 * (self.gig_ring_diameter ** 2) / self.gig_rss
-        rss_ring_pen = QPen(QColor(0x000000))
+        rss_ring_pen = QPen(global_colors.rss_color)
         rss_ring_pen.setStyle(Qt.DashLine)
         rss_ring_pen.setWidth(1)
 
         match_ring_diameter = self.dot_diameter + 4
-        match_highlight_pen = QPen(QColor(0xff0000))
+        match_highlight_pen = QPen(global_colors.search_match_color)
         match_highlight_pen.setWidth(self.dot_diameter // 6)
 
         pixmap = QPixmap((self.row_length + 1) * self.spacing, self.spacing * ((len(self.data) // self.row_length) + 3))
-        dot_painter = QPainter(pixmap)
         pixmap.fill(QColor(0xffffff))
+        dot_painter = QPainter(pixmap)
         for i, process_info in enumerate(self.data):
             if self.rss_max < process_info.rss:
                 self.rss_max = process_info.rss
@@ -1529,12 +1682,11 @@ class ProcessDotsWidget(QLabel):
                 red_intensity = 180 - (int(cpu_pp) if cpu_pp < 100.0 else 100)
                 dot_color = QColor(255, red_intensity, red_intensity)
             elif cpu_pp > 0.0:
-                dot_color = self.color_of_minor_cpu_usage
+                dot_color = global_colors.cpu_activity_color
             elif process_info.new_process:
-                dot_color = self.color_of_new_process  # 0xf8b540 0x21c81f
+                dot_color = global_colors.new_process_color
             else:
                 dot_color = self.choose_user_color(process_info)
-                process_info.context = (dot_color,)
 
             x = (i % self.row_length) * self.spacing + self.spacing
             y = (i // self.row_length) * self.spacing + self.spacing
@@ -1566,7 +1718,6 @@ class ProcessDotsWidget(QLabel):
                 text = str(process_info)
                 if self.re_target.search(text) is not None:
                     dot_painter.setPen(match_highlight_pen)
-                    # dot_painter.setBrush(QColor(0xea00ff)) #ff9500
                     dot_painter.setOpacity(1.0)
                     dot_painter.drawEllipse(x - match_ring_diameter // 2, y - match_ring_diameter // 2,
                                             match_ring_diameter, match_ring_diameter)
@@ -1710,6 +1861,7 @@ class MainWindow(QMainWindow):
             else:
                 if tray.isVisible():
                     tray.setVisible(False)
+            process_dots_widget.update_settings_from_config()
             update_title_and_tray_indicators()
 
         def settings() -> None:
