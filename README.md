@@ -1,7 +1,7 @@
 Procno: Process monitor and notifications forwarder
 ===================================================
 
-A GUI procfs stat viewer with Freedesktop-Notifications forwarding. **Like "top", but not as we know it.**
+A desktop process monitor with Freedesktop-Notifications forwarding. **Like "top", but not as we know it.**
 
 https://user-images.githubusercontent.com/5510901/142822739-f18e98d2-8ab1-42ca-97c6-ead17191bcba.mp4
 
@@ -26,18 +26,17 @@ excessive CPU or memory by forwarding messages to the desktop as standard *Freed
    + Mouse-wheel zooming of the dot-size (remembered across restarts).
  * Alert forwarding.
    + CPU consumption alert for a set level and duration of CPU activity.
-   + Memory consumption alert for sustained growth for a set duration and RSS threashold.
-   + Controls and options to enable/disable forwarding.
+   + Memory consumption alert for sustained growth for a set duration and RSS threshold.
+   + Controls and options to enable/disable notifications.
  * User interface and configuration
-   + Panels undock for maximised or customised viewing.
    + Customised panel and window geometries are saved across application-restart and panel-docking.
    + Dynamic (no restart) support for desktop theme changes, including light/dark theme switching.
    + An option to run minimised in the system-tray with a quick-access tray context-menu.
-   + Full configuration UI, editing of config INI files is not required.
+   + Full configuration UI, editing of config files is not required.
    + The configuration UI includes a tab for customising many of the colors, including the color for each user.
    + If Config INI files are externally edited, the changes are automatically reloaded without requiring a restart.
 
-``Procno`` is a tool designed to increase awareness of background activity by monitoring
+``Procno`` is designed to increase awareness of background activity by monitoring
 the procfs and raising excess consumption as desktop notifications.  Possibilities for
 it use include:
 
