@@ -1246,7 +1246,7 @@ class ConfigPanel(QDialog):
             options_panel.copy_to_config(self.config['options'])
             color_palette_panel.copy_to_config(self.config['colors'])
             self.config.save()
-            self.status_bar.showMessage("All changes have been saved.", 5000)
+            self.status_bar.showMessage(tr("All changes have been saved."), 5000)
             debug(f'config saved ok') if debugging else None
             config_change()
         apply_button.clicked.connect(save_action)
@@ -1272,7 +1272,7 @@ class ConfigPanel(QDialog):
                 if revert_message.exec() == QMessageBox.Cancel:
                     return
             info("Reverting unsaved changes.")
-            self.status_bar.showMessage("Unapplied changes have been reverted.", 5000)
+            self.status_bar.showMessage(tr("Unapplied changes have been reverted."), 5000)
             reload_from_config()
 
         def reload_from_config():
@@ -1810,7 +1810,7 @@ class ProcessDotsWidget(QLabel):
             new_dot_diameter = self.dot_diameter + (1 if num_degrees.y() > 0 else -1)
             if 12 <= new_dot_diameter <= 64:
                 self.set_dot_diameter(new_dot_diameter)
-        info(f"dot_diameter={self.dot_diameter} spacing={self.spacing}")
+        self.parent().statusBar().showMessage(tr("Dot diameter {}").format(self.dot_diameter), 500)
         event.accept()
 
 
