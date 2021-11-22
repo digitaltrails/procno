@@ -8,6 +8,8 @@ be warned I'm actively adding code. Features may change on a daily basis.***  Th
 usually quite functional, I don't push it here unless I think it's solid.  I've had some success using it to 
 detect runaway processes, such as chrome suddenly deciding to burn a CPU continuously. Ideas or feedback is welcome.
 
+![](video)
+
 Description
 -----------
 
