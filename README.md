@@ -60,6 +60,7 @@ All the following runtime dependencies are likely to be available pre-packaged o
 
 * python 3.8: ``jouno`` is written in python and may depend on some features present only in 3.8 onward.
 * python 3.8 QtPy: the python GUI library used by ``jouno``.
+* python 3.8 psutils: the library used to gather the data (often preinstalled in many Linux systems)
 * python 3.8 dbus: python module for dbus used for issuing notifications
 * Freedesktop theme icons: these are normally installed by default on any Linux desktop.
   The application may look different under different desktop themes. It was developed on a 

@@ -99,6 +99,7 @@ All the following runtime dependencies are likely to be available pre-packaged o
 
 * python 3.8: ``procno`` is written in python and may depend on some features present only in 3.8 onward.
 * python 3.8 QtPy: the python GUI library used by ``procno``.
+* python 3.8 psutils: the library used to gather the data (often preinstalled in many Linux systems)
 * python 3.8 dbus: python module for dbus used for issuing notifications
 
 Dependency installation on ``OpenSUSE``:
@@ -133,7 +134,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 ----------
 
 """
-# TODO see if psutils is faster than procfs - certainly seems better documented
 # TODO IO
 # TODO vsize ring?
 # TODO random color suggestion button
@@ -162,7 +162,6 @@ from pathlib import Path
 from typing import Mapping, List, Type, Callable, Tuple
 
 import dbus
-import procfs
 import psutil
 from PyQt5.QtCore import QCoreApplication, QProcess, Qt, pyqtSignal, QThread, QSize, \
     QEvent, QSettings, QObject, QRegExp
@@ -356,7 +355,7 @@ SVG_COLOR_SWATCH = b"""
 """
 
 system_boot_time = psutil.boot_time()
-system_vm_kbytes = psutil.virtual_memory().total / 1024
+system_vm_bytes = psutil.virtual_memory().total
 system_ticks_per_second = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
 
 
@@ -616,18 +615,19 @@ class NotifyFreeDesktop:
 
 
 class ProcessInfo:
-    def __init__(self, pid, item: Mapping, new_process: bool):
-        proc_stat = item['stat']
-        proc_status = item['status']
+    def __init__(self, pid, process: psutil.Process, new_process: bool):
         self.last_update = time.time()
-        self.pid = pid
-        self.real_uid, self.effective_uid = proc_status['Uid'].split('\t')[0:2]
-        self.cmdline = item['cmdline']
-        self.comm = proc_stat['comm']
-        self.utime = proc_stat['utime']
-        self.stime = proc_stat['stime']
-        self.rss = proc_stat['rss']
-        self.start_time = time.localtime(system_boot_time + proc_stat['starttime'] / system_ticks_per_second)
+
+        self.pid = process.pid
+        self.real_uid, self.effective_uid, _ = process.uids()
+        self.cmdline = process.cmdline()
+        self.comm = process.name()
+        cpu_times = process.cpu_times()
+        self.utime = cpu_times.user
+        self.stime = cpu_times.system
+        self.rss = process.memory_info().rss
+        self.start_time = time.localtime(process.create_time())
+
         self.start_time_text = time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
         self.cpu_diff = 0
         self.rss_diff = 0
@@ -635,7 +635,7 @@ class ProcessInfo:
         self.new_process = new_process
         self.cpu_burn_seconds = 0
         self.rss_growing_seconds = 0
-        self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_kbytes
+        self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
         try:
             self.username = pwd.getpwuid(int(self.real_uid)).pw_name
             if self.effective_uid != self.real_uid:
@@ -647,26 +647,26 @@ class ProcessInfo:
             self.effective_username = None
         self.user_color = None
 
-    def updated(self, item: Mapping, cpu_burn_ratio, rss_exceeded_mbytes):
+    def updated(self, process: psutil.Process, cpu_burn_ratio, rss_exceeded_mbytes):
         # Trying to be frugal, not copying to a new ProcInfo, might mean the GUI sees the object as it's
         # being updated - no great sin?
         self.new_process = False
         now = time.time()
         elapsed_seconds = now - self.last_update
         self.last_update = now
-        proc_stat = item['stat']
-        utime = proc_stat['utime']
-        stime = proc_stat['stime']
-        cpu_diff = (utime + stime) - (self.utime + self.stime)
-        rss = proc_stat['rss']
-        rss_diff = rss - self.rss
-        self.utime = utime
-        self.stime = stime
-        self.rss = rss
-        self.cpu_diff = cpu_diff
-        # Don't do unnecessary expensive math - this is called a lot.
-        self.current_cpu_percent = \
-            0.0 if cpu_diff == 0 else math.ceil(100.0 * cpu_diff / system_ticks_per_second / elapsed_seconds)
+        if process is not None:
+            cpu_times = process.cpu_times()
+            utime = cpu_times.user
+            stime = cpu_times.system
+            cpu_diff = (utime + stime) - (self.utime + self.stime)
+            rss = process.memory_info().rss
+            rss_diff = rss - self.rss
+            self.utime = utime
+            self.stime = stime
+            self.rss = rss
+            self.cpu_diff = cpu_diff
+            # Don't do unnecessary expensive math - this is called a lot.
+            self.current_cpu_percent = 0.0 if cpu_diff == 0 else math.ceil(100.0 * cpu_diff / elapsed_seconds)
         # if self.current_cpu_percent > 95:
         #    print(self.pid, self.current_cpu_percent, cpu_diff / system_ticks_per_second, elapsed_seconds)
         if self.current_cpu_percent >= cpu_burn_ratio:
@@ -676,7 +676,7 @@ class ProcessInfo:
         self.rss_diff = rss_diff
         # Don't do unnecessary expensive math - this is called a lot.
         if self.rss_diff != 0:
-            self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_kbytes
+            self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
         if rss_diff > 0 and rss > rss_exceeded_mbytes * 1000:
             self.rss_growing_seconds += elapsed_seconds
         else:
@@ -757,31 +757,37 @@ class ProcessWatcher:
             try:
                 if self.config.refresh():
                     self.update_settings_from_config()
-                data = []
-                pid_stats = procfs.pidstats()
-                for pid, item in pid_stats.items().items():
-                    if pid in self.past_data:
-                        proc_info = self.past_data[pid].updated(
-                            item, self.notify_cpu_use_percent, self.notify_rss_exceeded_mbytes)
-                    else:
-                        proc_info = ProcessInfo(pid, item, initialised)
-                        self.past_data[pid] = proc_info
-                    if proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
-                        self.notify_cpu_burning(notify, proc_info)
-                        proc_info.cpu_burn_seconds = 0
-                    if proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
-                        self.notify_rss_growing(notify, proc_info)
-                        proc_info.rss_growing_seconds = 0
-                    data.append(proc_info)
+                data = self.read_data_from_psutil(initialised, notify)
                 initialised = True
                 self.supervisor.new_data(data)
             except FileNotFoundError as e:
                 pass
             time.sleep(self.polling_millis / 1000)
 
+    def read_data_from_psutil(self, initialised, notify):
+        data = []
+        for process in psutil.process_iter():
+            with process.oneshot():
+                pid = process.pid
+                if pid in self.past_data:
+                    proc_info = self.past_data[pid].updated(
+                        process,
+                        self.notify_cpu_use_percent, self.notify_rss_exceeded_mbytes)
+                else:
+                    proc_info = ProcessInfo(pid, process, initialised)
+                    self.past_data[pid] = proc_info
+                if proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
+                    self.notify_cpu_burning(notify, proc_info)
+                    proc_info.cpu_burn_seconds = 0
+                if proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
+                    self.notify_rss_growing(notify, proc_info)
+                    proc_info.rss_growing_seconds = 0
+                data.append(proc_info)
+        return data
+
     def notify_cpu_burning(self, notify: NotifyFreeDesktop, proc_info: ProcessInfo):
         if self.notifications_enabled:
-            short_name = proc_info.comm if proc_info.comm != '' else procfs.cmdline
+            short_name = proc_info.comm if proc_info.comm != '' else proc_info.cmdline
             if len(short_name) > 20:
                 short_name = short_name[0:18] + '..'
             app_name = "\u25b3 CPU consumption [{}]".format(short_name)
@@ -800,7 +806,7 @@ class ProcessWatcher:
 
     def notify_rss_growing(self, notify: NotifyFreeDesktop, proc_info: ProcessInfo):
         if self.notifications_enabled:
-            short_name = proc_info.comm if proc_info.comm != '' else procfs.cmdline
+            short_name = proc_info.comm if proc_info.comm != '' else proc_info.cmdline
             if len(short_name) > 20:
                 short_name = short_name[0:18] + '..'
             app_name = "\u25b3 rss growth [{}]".format(short_name)
@@ -1523,7 +1529,7 @@ class ProcessControlWidget(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        short_name = process_info.comm if process_info.comm != '' else procfs.cmdline
+        short_name = process_info.comm if process_info.comm != '' else process_info.cmdline
         if len(short_name) > 20:
             short_name = short_name[0:18] + '..'
 
@@ -1631,7 +1637,7 @@ class ProcessDotsWidget(QLabel):
         self.row_length = 0
         self.rss_max = 100
         self.pi_over_4 = math.pi / 4
-        self.gig_rss = 1000000  # k => 1 GB
+        self.gig_rss = 1_000_000_000  # bytes
         self.gig_ring_diameter = self.spacing * 4
         self.re_target = None
         self.setAlignment(Qt.AlignTop)
