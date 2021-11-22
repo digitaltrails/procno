@@ -1048,7 +1048,7 @@ class ColorPalette:
 
     def choose_user_color(self, real_uid) -> QColor:
         username = pwd.getpwuid(int(real_uid)).pw_name
-        if real_uid == '0':
+        if real_uid == 0:
             return self.root_user_color
 
         if username in self.user_color_map:
