@@ -1620,6 +1620,7 @@ class ProcessDotsWidget(QLabel):
     def __init__(self, parent: QMainWindow):
         super().__init__(parent=parent)
         self.setObjectName("process_grid_window")
+        self.dot_diameter_key = self.objectName() + ".dot_size"
         self.allocated_position = {}
         self.available_positions = []
         self.setAutoFillBackground(True)
@@ -1629,8 +1630,9 @@ class ProcessDotsWidget(QLabel):
         self.setPalette(palette)
         self.data: List[ProcessInfo] = {}
         self.past_data: List[ProcessInfo] = []
-        self.spacing = 32
-        self.dot_diameter = 24
+        self.dot_diameter = 0
+        self.spacing = 0
+        self.set_dot_diameter(24)
         self.config = Config()
         self.show_tips = True
         self.color_of_user_map = {}
@@ -1649,6 +1651,20 @@ class ProcessDotsWidget(QLabel):
         # self.setMinimumHeight(500)
         self.setLayout(QVBoxLayout())
         self.rgb = (200, 255, 255)
+
+    def set_dot_diameter(self, diameter: int):
+        self.dot_diameter = diameter
+        self.spacing = self.spacing = 4 * self.dot_diameter // 3
+
+    def app_save_state(self, settings):
+        settings.setValue(self.dot_diameter_key, str(self.dot_diameter))
+
+    def app_restore_state(self, settings):
+        debug("app_restore_state") if debugging else None
+        value = settings.value(self.dot_diameter_key, None)
+        if value is not None:
+            debug(f"Restore {self.dot_diameter_key}") if debugging else None
+            self.set_dot_diameter(int(settings.value(self.dot_diameter_key, None)))
 
     def update_settings_from_config(self):
         info('Dot widget clearing cached user colors.')
@@ -1785,18 +1801,16 @@ class ProcessDotsWidget(QLabel):
     def wheelEvent(self, event: QWheelEvent) -> None:
         num_pixels = event.pixelDelta()
         num_degrees = event.angleDelta()
-
         if num_pixels is not None:
             new_dot_diameter = self.dot_diameter + (2 if num_pixels.y() > 0 else -2)
-            if 24 <= new_dot_diameter <= 64:
-                self.dot_diameter = new_dot_diameter
-                self.spacing = 3 * self.dot_diameter // 2
+            if 12 <= new_dot_diameter <= 64:
+                self.set_dot_diameter(new_dot_diameter)
         elif num_degrees is not None:
             numSteps = num_degrees / 8 / 15;
             new_dot_diameter = self.dot_diameter + (1 if num_degrees.y() > 0 else -1)
-            if 24 <= new_dot_diameter <= 64:
-                self.dot_diameter = new_dot_diameter
-                self.spacing = 3 * self.dot_diameter // 2
+            if 12 <= new_dot_diameter <= 64:
+                self.set_dot_diameter(new_dot_diameter)
+        info(f"dot_diameter={self.dot_diameter} spacing={self.spacing}")
         event.accept()
 
 
@@ -1927,10 +1941,11 @@ class MainWindow(QMainWindow):
             # self.config_dock_container.setGeometry(x // 2 - 150 - 2 * x // 3, y // 3, x // 3, y // 2)
             self.setGeometry(0, 0, 1000, 900)
             pass
-        self.app_restore_state()
 
         process_dots_widget = ProcessDotsWidget(self)
         self.setCentralWidget(process_dots_widget)
+
+        self.app_restore_state()
 
         tray.activated.connect(self.tray_activate_window)
         if self.config.getboolean('options', 'system_tray_enabled'):
@@ -1973,6 +1988,7 @@ class MainWindow(QMainWindow):
         debug(f"app_save_state {self.geometry_key} {self.state_key}") if debugging else None
         self.settings.setValue(self.geometry_key, self.saveGeometry())
         self.settings.setValue(self.state_key, self.saveState())
+        self.centralWidget().app_save_state(self.settings)
 
     def app_restore_state(self):
         debug("app_restore_state") if debugging else None
@@ -1982,6 +1998,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geometry)
             window_state = self.settings.value(self.state_key, None)
             self.restoreState(window_state)
+            self.centralWidget().app_restore_state(self.settings)
 
 
 def main():
