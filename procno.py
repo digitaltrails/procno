@@ -223,7 +223,7 @@ notify_rss_growing_seconds = 5
 
 cpu_activity_color = 0x3491e1
 new_process_color = 0xf8b540
-search_match_color = 0xff0000
+search_match_color = 0x00aa00
 root_user_color = 0xd2d2d2
 
 '''
@@ -1020,11 +1020,11 @@ class OptionsPanel(QWidget):
 
 class ColorPalette:
     def __init__(self):
-        self.user_color_map: Mapping[str, int] = {}
+        self.user_color_map: Mapping[int, int] = {}
         self.cpu_activity_color = QColor(0x3491e1)
         self.rss_color = QColor(0x000000)
         self.new_process_color = QColor(0xf8b540)
-        self.search_match_color = QColor(0xff0000)
+        self.search_match_color = QColor(0x00aa00)
         self.root_user_color = QColor(0xd2d2d2)
         # Starting colors, when they run out we use a random selection
         self.default_user_colors = [QColor(c) for c in
