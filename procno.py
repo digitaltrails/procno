@@ -218,6 +218,7 @@ notify_cpu_use_percent = 100
 notify_cpu_use_seconds = 30
 notify_rss_exceeded_mbytes = 1000
 notify_rss_growing_seconds = 5
+io_indicators_enabled = no
 
 [colors]
 
@@ -359,6 +360,11 @@ system_vm_bytes = psutil.virtual_memory().total
 system_ticks_per_second = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
 
 
+def tr(source_text: str):
+    """For future internationalization - recommended way to do this at this time."""
+    return QCoreApplication.translate('procno', source_text)
+
+
 class ConfigOption:
 
     def __init__(self, option_id: str, tooltip: str, int_range: Tuple[int, int] = None):
@@ -375,26 +381,30 @@ class ConfigOption:
 
 
 CONFIG_OPTIONS_LIST: List[ConfigOption] = [
-    ConfigOption('poll_seconds', 'How often to poll for new messages ({}..{} seconds).', (1, 30)),
+    ConfigOption('poll_seconds', tr('How often to poll for new messages ({}..{} seconds).'), (1, 30)),
     ConfigOption('notification_seconds',
-                 'How long should a desktop notification remain visible, zero for no timeout ({}..{} seconds)',
+                 tr('How long should a desktop notification remain visible, zero for no timeout ({}..{} seconds)'),
                  (0, 60)),
     ConfigOption('notify_cpu_use_percent',
-                 'Processes CPU consumption threshold ({}..{} percent)',
+                 tr('Processes CPU consumption threshold ({}..{} percent)'),
                  (0, 900)),
     ConfigOption('notify_cpu_use_seconds',
-                 'Notify if a process stays above the CPU threshold for this amount of time ({}..{} seconds)',
+                 tr('Notify if a process stays above the CPU threshold for this amount of time ({}..{} seconds)'),
                  (0, 300)),
     ConfigOption('notify_rss_exceeded_mbytes',
-                 'Process rss consumption threshold (1..100000 kbytes)',
+                 tr('Process rss consumption threshold (1..100000 kbytes)'),
                  (1, 100_000)),
     ConfigOption('notify_rss_growing_seconds',
-                 'Notify if a process rss continues to grow above the threshold for this amount of time  ({}..{} seconds)',
+                 tr('Notify if a process rss continues to grow above the threshold for this amount of time  ({}..{} seconds)'),
                  (0, 60)),
-    ConfigOption('system_tray_enabled', 'procno should start minimised in the system-tray.'),
-    ConfigOption('start_with_notifications_enabled', 'procno should start with desktop notifications enabled.'),
-    ConfigOption('debug_enabled', 'Enable extra debugging output to standard-out.'),
+    ConfigOption('system_tray_enabled', tr('procno should start minimised in the system-tray.')),
+    ConfigOption('start_with_notifications_enabled', tr('procno should start with desktop notifications enabled.')),
+    ConfigOption('io_indicators_enabled', tr("Show read/write indicators (not available for other user's processes).")),
+    ConfigOption('debug_enabled', tr('Enable extra debugging output to standard-out.')),
 ]
+
+
+io_indicators_enabled = False
 
 debugging = True
 
@@ -414,11 +424,6 @@ def warning(*arg):
 
 def error(*arg):
     print('ERROR:', *arg)
-
-
-def tr(source_text: str):
-    """For future internationalization - recommended way to do this at this time."""
-    return QCoreApplication.translate('procno', source_text)
 
 
 def random_color(mix, seed: int = None):
@@ -627,11 +632,21 @@ class ProcessInfo:
         self.stime = cpu_times.system
         self.rss = process.memory_info().rss
         self.start_time = time.localtime(process.create_time())
-
         self.start_time_text = time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
         self.cpu_diff = 0
         self.rss_diff = 0
         self.current_cpu_percent = 0.0
+        self.read_count = 0
+        self.write_count = 0
+        self.read_diff = 0
+        self.write_diff = 0
+        if io_indicators_enabled:
+            try:
+                io_counters = process.io_counters()
+                self.read_count = io_counters.read_count
+                self.write_count = io_counters.write_count
+            except psutil.AccessDenied as e:
+                pass
         self.new_process = new_process
         self.cpu_burn_seconds = 0
         self.rss_growing_seconds = 0
@@ -665,6 +680,20 @@ class ProcessInfo:
             self.stime = stime
             self.rss = rss
             self.cpu_diff = cpu_diff
+            self.read_diff = 0
+            self.write_diff = 0
+            if io_indicators_enabled:
+                try:
+                    io_counters = process.io_counters()
+                    read_count = io_counters.read_count
+                    write_count = io_counters.write_count
+                    self.read_diff = read_count - self.read_count
+                    self.write_diff = write_count - self.write_count
+                    self.read_count = read_count
+                    self.write_count = write_count
+                except psutil.AccessDenied as e:
+                    self.read_count = 0
+                    self.write_count = 0
             # Don't do unnecessary expensive math - this is called a lot.
             self.current_cpu_percent = 0.0 if cpu_diff == 0 else math.ceil(100.0 * cpu_diff / elapsed_seconds)
         # if self.current_cpu_percent > 95:
@@ -690,7 +719,8 @@ class ProcessInfo:
         return \
             f"PID: {self.pid}\ncomm: {self.comm}\ncmdline: {cmdline_text}\n" + \
             f"CPU: {self.current_cpu_percent:2.0f}% utime: {self.utime} stime: {self.stime}\n" + \
-            f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss}\n" + \
+            f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss/1_000_000:.3f} Mbytes\n" + \
+            (f"Reads: {self.read_count} Writes: {self.write_count}\n" if io_indicators_enabled else '') + \
             f"Started: {self.start_time_text}\n" + \
             f"Real_UID: {self.real_uid} User={self.username}" + \
             ('' if self.effective_uid == self.real_uid else f"\nEffective_UID: {self.effective_uid}") + \
@@ -739,6 +769,9 @@ class ProcessWatcher:
             self.notify_rss_exceeded_mbytes = self.config.getint('options', 'notify_rss_exceeded_mbytes')
         if 'notify_rss_growing_seconds' in self.config['options']:
             self.notify_rss_growing_seconds = self.config.getint('options', 'notify_rss_growing_seconds')
+        global io_indicators_enabled
+        io_indicators_enabled = self.config.getboolean(
+            'options', 'io_indicators_enabled', fallback=False)
         if 'debug' in self.config['options']:
             global debugging
             debugging = self.config.getboolean('options', 'debug')
@@ -815,7 +848,7 @@ class ProcessWatcher:
             message = tr(
                 "rss has been growing for at least {:.0f} seconds\nRSS={:.0f} Mbytes. {:0.1f}% of memory\npid={}\ncomm={}\ncmdline={}").format(
                 proc_info.rss_growing_seconds,
-                proc_info.rss / 1000.0,
+                proc_info.rss / 1_000_000.0,
                 proc_info.rss_current_percent_of_system_vm,
                 proc_info.pid,
                 proc_info.comm,
@@ -1632,6 +1665,7 @@ class ProcessDotsWidget(QLabel):
         self.past_data: List[ProcessInfo] = []
         self.dot_diameter = 0
         self.spacing = 0
+        self.io_dot_diameter = 0
         self.set_dot_diameter(24)
         self.config = Config()
         self.show_tips = True
@@ -1654,6 +1688,7 @@ class ProcessDotsWidget(QLabel):
 
     def set_dot_diameter(self, diameter: int):
         self.dot_diameter = diameter
+        self.io_dot_diameter = diameter // 6
         self.spacing = self.spacing = 4 * self.dot_diameter // 3
 
     def app_save_state(self, settings):
@@ -1755,6 +1790,28 @@ class ProcessDotsWidget(QLabel):
             dot_painter.setBrush(Qt.NoBrush)
             dot_painter.setOpacity(0.4)
             dot_painter.drawEllipse(x - ring_diameter // 2, y - ring_diameter // 2, ring_diameter, ring_diameter)
+
+            # if process_info.read_diff != 0:
+            #     dot_painter.setPen(QPen(QColor(0x00ff00)))
+            #     dot_painter.setBrush(QColor(0x00ff00))
+            #     dot_painter.setOpacity(1.0)
+            #     dot_painter.drawPie(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter, 5*16, -10*16)
+            # if process_info.write_diff != 0:
+            #     dot_painter.setPen(QPen(QColor(0x000000)))
+            #     dot_painter.setBrush(QColor(0xff0000))
+            #     dot_painter.setOpacity(1.0)
+            #     dot_painter.drawPie(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter, 185*16, -10*16)
+
+            if process_info.read_diff != 0:
+                dot_painter.setPen(QPen(QColor(0x00aa00)))
+                dot_painter.setBrush(QColor(0x00aa00))
+                dot_painter.setOpacity(1.0)
+                dot_painter.drawEllipse(x - self.spacing // 2 + self.io_dot_diameter, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
+            if process_info.write_diff != 0:
+                dot_painter.setPen(QPen(QColor(0xff0000)))
+                dot_painter.setBrush(QColor(0xff0000))
+                dot_painter.setOpacity(1.0)
+                dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
 
             if self.re_target is not None:
                 text = str(process_info)
