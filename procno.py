@@ -48,11 +48,6 @@ Procno is designed to increase awareness of background activity.  Possibilities 
 
  * TODO
 
-Getting started
-===============
-
-TODO
-
 Config files
 ------------
 
