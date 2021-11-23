@@ -27,7 +27,7 @@ Summary: A process monitor with DBUS Freedesktop-Notifications.
 Source0:        %{name}-%{version}.tar.gz
 
 %if 0%{?suse_version} || 0%{?fedora_version}
-Requires: python38 python38-qt5 python38-dbus-python python38-systemd
+Requires: python38 python38-qt5 python38-dbus-python python38-psutil
 %endif
 
 BuildRequires: coreutils
