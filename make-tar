@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]
+then
+    echo "ERROR: please supply version parameter, e.g. 1.5.1"
+    exit 1
+fi
+version="$1"
+
+ln -s . procno-$version
+tar --files-from=- -cvzf  /home/michael/rpmbuild/SOURCES/procno-$version.tar.gz <<EOF
+procno-$version/LICENSE.md
+procno-$version/README.md
+procno-$version/screen-shots/Screenshot_Large.png
+procno-$version/procno.py
+procno-$version/procno.png
+EOF
+echo /home/michael/rpmbuild/SOURCES/procno-$version.tar.gz
+rm procno-$version

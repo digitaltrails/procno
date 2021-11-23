@@ -152,6 +152,7 @@ import pwd
 import random
 import re
 import signal
+import stat
 import sys
 import textwrap
 import time
@@ -174,7 +175,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QHBoxLayout, QStyleFactory, QToolButton, QScrollArea, QLayout, QStatusBar, QToolTip, QComboBox, QTabWidget, \
     QColorDialog
 
-PROGRAM_VERSION = '0.9.0'
+PROGRAM_VERSION = '1.0.0'
 
 
 def get_program_name() -> str:
@@ -455,6 +456,72 @@ def exception_handler(e_type, e_value, e_traceback):
     QApplication.quit()
 
 
+def install_as_desktop_application(uninstall: bool = False):
+    """Self install this script in the current Linux user's bin directory and desktop applications->settings menu."""
+    desktop_dir = Path.home().joinpath('.local', 'share', 'applications')
+    icon_dir = Path.home().joinpath('.local', 'share', 'icons')
+
+    if not desktop_dir.exists():
+        warning("creating:{desktop_dir.as_posix()}")
+        os.mkdir(desktop_dir)
+
+    bin_dir = Path.home().joinpath('bin')
+    if not bin_dir.is_dir():
+        warning("creating:{bin_dir.as_posix()}")
+        os.mkdir(bin_dir)
+
+    if not icon_dir.is_dir():
+        warning("creating:{icon_dir.as_posix()}")
+        os.mkdir(icon_dir)
+
+    installed_script_path = bin_dir.joinpath("procno")
+    desktop_definition_path = desktop_dir.joinpath("procno.desktop")
+    icon_path = icon_dir.joinpath("procno.png")
+
+    if uninstall:
+        os.remove(installed_script_path)
+        info(f'removed {installed_script_path.as_posix()}')
+        os.remove(desktop_definition_path)
+        info(f'removed {desktop_definition_path.as_posix()}')
+        os.remove(icon_path)
+        info(f'removed {icon_path.as_posix()}')
+        return
+
+    if installed_script_path.exists():
+        warning(f"skipping installation of {installed_script_path.as_posix()}, it is already present.")
+    else:
+        source = open(__file__).read()
+        source = source.replace("#!/usr/bin/python3", '#!' + sys.executable)
+        info(f'creating {installed_script_path.as_posix()}')
+        open(installed_script_path, 'w').write(source)
+        info(f'chmod u+rwx {installed_script_path.as_posix()}')
+        os.chmod(installed_script_path, stat.S_IRWXU)
+
+    if desktop_definition_path.exists():
+        warning(f"skipping installation of {desktop_definition_path.as_posix()}, it is already present.")
+    else:
+        info(f'creating {desktop_definition_path.as_posix()}')
+        desktop_definition = textwrap.dedent(f"""
+            [Desktop Entry]
+            Type=Application
+            Exec={installed_script_path.as_posix()}
+            Name=procno
+            GenericName=procno
+            Comment=A process monitor with DBUS Freedesktop-Notifications. Like top, but not as we know it.
+            Icon={icon_path.as_posix()}
+            Categories=Qt;System;Monitor;System;
+            """)
+        open(desktop_definition_path, 'w').write(desktop_definition)
+
+    if icon_path.exists():
+        warning(f"skipping installation of {icon_path.as_posix()}, it is already present.")
+    else:
+        info(f'creating {icon_path.as_posix()}')
+        create_pixmap_from_svg_bytes(SVG_PROGRAM_ICON).save(icon_path.as_posix())
+
+    info('installation complete. Your desktop->applications->system should now contain procno')
+
+
 def parse_args():
     args = sys.argv[1:]
     parser = argparse.ArgumentParser(
@@ -471,10 +538,10 @@ def parse_args():
                         help='uninstalls the procno application menu file and script for the current user.')
     parsed_args = parser.parse_args(args=args)
     if parsed_args.install:
-        # install_as_desktop_application()
+        install_as_desktop_application()
         sys.exit()
     if parsed_args.uninstall:
-        # install_as_desktop_application(uninstall=True)
+        install_as_desktop_application(uninstall=True)
         sys.exit()
     if parsed_args.detailed_help:
         print(__doc__)
