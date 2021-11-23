@@ -14,7 +14,7 @@ Description
 
 ![Default](screen-shots/Screenshot_Large.png) 
 
-An explanation of what you have seen in the video or screenshot:
+An explanation the video or screenshot:
 
  * All the processes on the system are represented by dots.
  * The static dot coloring is specific to the process owner (all the light grey processes belong to root).
