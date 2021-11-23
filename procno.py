@@ -56,7 +56,7 @@ An explanation of procno's UI:
  * If a dot briefly enlarges or decreases in size, the process's resident set size has gone up or down.
  * Each process dot is augmented with a dashed-ring that indicates the processes resident set size as proportion of RAM.
  * If text is entered in the search field (for example nmb), any process with matching text is circled in red
-   (this happens dynamically, so new matching processes will be circled when they start).  Text search is
+   (this happens dynamically, so new matching processes will be circled when they start).  Text search becomes
    incremental once more than three characters have been entered.
  * Hovering over a dot brings up a tooltip containing process details.
  * Clicking on a dot brings up a small dialog with processed details that update dynamically.  The dialog
