@@ -32,31 +32,7 @@ An explanation the video or screenshot:
    the process.
  * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised.
 
-``Procno`` is a GUI ``procfs`` process stat monitoring tool.  Procno can can warn of processes consuming
-excessive CPU or memory by forwarding messages to the desktop as standard *Freedesktop DBUS Notifications*
-(most linux desktop environments present DBUS Notifications as popup messages). Procno's feature set includes:
-
- * Procfs stat live-overview of all processes.
-   + Overview table with live view.
-   + Visual indicators of CPU activity, RSS change, RSS relative size, and UID.
-   + Plain-text or regular-expression incremental-search and select.
-   + Click access to mini process-details live-readout with copy/paste and send process-signals.
-   + Mouse-wheel zooming of the dot-size (remembered across restarts).
- * Alert forwarding.
-   + CPU consumption alert for a set level and duration of CPU activity.
-   + Memory consumption alert for sustained growth for a set duration and RSS threshold.
-   + Controls and options to enable/disable notifications.
- * User interface and configuration
-   + Customised panel and window geometries are saved across application-restart and panel-docking.
-   + Dynamic (no restart) support for desktop theme changes, including light/dark theme switching.
-   + An option to run minimised in the system-tray with a quick-access tray context-menu.
-   + Full configuration UI, editing of config files is not required.
-   + The configuration UI includes a tab for customising many of the colors, including the color for each user.
-   + If Config INI files are externally edited, the changes are automatically reloaded without requiring a restart.
-
-``Procno`` is designed to increase awareness of background activity by monitoring
-the procfs and raising excess consumption as desktop notifications.  Possibilities for
-it use include:
+Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 
  * TODO
 

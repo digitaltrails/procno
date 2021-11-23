@@ -25,28 +25,8 @@ Description
 ===========
 
 ``Procno`` is a GUI ``procfs`` process stat monitoring tool.  Procno can can warn of processes consuming
-excessive CPU or memory by forwarding messages to the desktop as standard *Freedesktop DBUS Notifications*
-(most linux desktop environments present DBUS Notifications as popup messages). procno's feature set includes:
-
- * Procfs stat live-overview of all processes.
-   + Overview table with live view.
-   + Visual indicators of CPU activity, RSS change, RSS relative size, and UID.
-   + Plain-text or regular-expression incremental-search and select.
-   + Click access to mini-readout, cut/paste-able info, send process-signals.
-   + Scroll wheel zoom.
- * Alert forwarding.
-   + CPU consumption alert for a set level and duration of CPU activity.
-   + Memory consumption alert for sustained growth for a set duration and RSS threashold.
-   + Controls and options to enable/disable forwarding.
- * User interface and configuration
-   + Panels undock for maximised or customised viewing.
-   + Customised panel and window geometries are saved across application-restart and panel-docking.
-   + Dynamic (no restart) support for desktop theme changes, including light/dark theme switching.
-   + An option to run minimised in the system-tray with a quick-access tray context-menu.
-   + Full configuration UI, editing of config INI files is not required.
-   + If Config INI files are externally edited, the changes are automatically reloaded without requiring a restart.
-
-An explanation of procno's UI:
+excessive CPU or memory by raising *Freedesktop DBUS Notifications* (most linux desktop environments present
+DBUS Notifications as popup messages).  Procno's UI functions as follows:
 
  * All the processes on the system are represented by dots.
  * The static dot coloring is specific to the process owner (all the light grey processes belong to root).
@@ -64,9 +44,7 @@ An explanation of procno's UI:
    the process.
  * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised.
 
-``Procno`` is a tool designed to increase awareness of background activity by monitoring
-the procfs and raising excess consumption as desktop notifications.  Possibilities for
-it use include:
+Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 
  * TODO
 
