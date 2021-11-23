@@ -31,6 +31,8 @@ An explanation the video or screenshot:
    includes an arming switch (a checkbox) that arms a signal dropdown which can be used to signal/terminate
    the process.
  * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised.
+ * Procno can optionally run out of the system tray. Geometry and configuration is preserved
+   across restarts. Procno dynamically adjusts to light and dark desktop themes.
 
 Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 
