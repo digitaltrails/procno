@@ -50,14 +50,14 @@ An explanation of procno's UI:
 
  * All the processes on the system are represented by dots.
  * The static dot coloring is specific to the process owner (all the light grey processes belong to root).
- * If a process consumes a little CPU (<10%) it will briefly light up in blue.
- * If a process consumes a lot of CPU it will show from lighter pinkish-red to full-red depending on how much
+ * If a process consumes a little CPU (<10%) its dot will briefly light up in blue.
+ * If a process consumes a lot of CPU its dot will vary from lighter pinkish-red to full-red depending on how much
    CPU it is consuming.
  * If a dot briefly enlarges or decreases in size, the process's resident set size has gone up or down.
- * Each process dot is annotated with a dotted ring that indicates its resident set size as proportion of RAM.
+ * Each process dot is augmented with a dashed-ring that indicates the processes resident set size as proportion of RAM.
  * If text is entered in the search field (for example nmb), any process with matching text is circled in red
    (this happens dynamically, so new matching processes will be circled when they start).  Text search is
-   incremental (once more than three characters have been entered).
+   incremental once more than three characters have been entered.
  * Hovering over a dot brings up a tooltip containing process details.
  * Clicking on a dot brings up a small dialog with processed details that update dynamically.  The dialog
    includes an arming switch (a checkbox) that arms a signal dropdown which can be used to signal/terminate
