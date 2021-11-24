@@ -23,7 +23,7 @@ An explanation the video or screenshot:
    CPU it is consuming.
  * If a dot briefly enlarges or decreases in size, the process's resident set size has gone up or down.
  * Each process dot is augmented with a dashed-ring that indicates the processes resident set size as proportion of RAM.
- * If text is entered in the search field (for example nmb), any process with matching text is circled in red
+ * If text is entered in the search field (for example nmb), any process with matching text is circled
    (this happens dynamically, so new matching processes will be circled when they start).  Text search becomes
    incremental once more than three characters have been entered.
  * Hovering over a dot brings up a tooltip containing process details.
@@ -118,15 +118,15 @@ Executing the program
 Help
 ----
 
-Detailed help can be accessed by using the right mouse-button to bring up a context-menu or --help on the 
-command line.  Access to the context-menu is available via a right-mouse click in both the application-window 
-and the system-tray icon.
+Detailed help can be accessed by using the help button or tray context-menu or --help on the 
+command line.  Access to the context-menu is available via the menu on the application-window 
+and right-click on the system-tray icon.
 
 Accessories
 -----------
 
 A suggested accessory is [KDE Connect](https://kdeconnect.kde.org/).  If you enabled the appropriate permissions on 
-your phone, KDE Connect can forward desktop notifications to the phone.  Use procno to forward Systemd-Journal 
+your phone, KDE Connect can forward desktop notifications to the phone.  Use procno to forward alert 
 messages to Desktop-Notifications, and use KDE Connect to forward them to your phone.
 
 
@@ -135,7 +135,7 @@ Issues
 
 KDE kwin-compositing has an ongoing CPU/responsiveness issue for notifications that are set to expire ([bug 436240](https://bugs.kde.org/show_bug.cgi?id=436240)).
 If this proves to be a problem, the ``procno`` option notification_seconds can be set to zero, in 
-which case popup messages won't expire and will remain visible until dismissed.  
+which case popup messages won't expire and will remain visible until dismissed (this may be an nvidia only issue).  
 
 Development
 -----------
