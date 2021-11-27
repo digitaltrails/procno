@@ -147,6 +147,7 @@ import sys
 import textwrap
 import time
 import traceback
+from functools import partial
 from html import escape
 from io import StringIO
 from pathlib import Path
@@ -234,6 +235,7 @@ ICON_DOCK = "view-restore"
 ICON_GO_NEXT = "go-down"
 ICON_GO_PREVIOUS = "go-up"
 ICON_CLEAR_RECENTS = "edit-clear-all"
+ICON_DEFAULTS = 'edit-reset'
 ICON_REVERT = 'edit-undo'
 # This might only be KDE/Linux icons - not in Freedesktop Standard.
 ICON_APPLY = "dialog-ok-apply"
@@ -392,8 +394,9 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
                  (0, 60)),
     ConfigOption('system_tray_enabled', tr('procno should start minimised in the system-tray.')),
     ConfigOption('start_with_notifications_enabled', tr('procno should start with desktop notifications enabled.')),
-    ConfigOption('io_indicators_enabled', tr("Show read/write indicators (not available for other user's processes).")),
-    ConfigOption('uss_enabled', tr("Show USS (Unique SS - not available for other user's processes).")),
+    ConfigOption('io_indicators_enabled', tr("Show read/write indicators\n(not available for other user's processes).")),
+    ConfigOption('uss_enabled', tr("Show USS - Unique SS - obtaining USS is expensive CPU wise\n" 
+                                   "(not available for other user's processes).")),
     ConfigOption('shared_enabled', tr("Show potentially shared.")),
     ConfigOption('debug_enabled', tr('Enable extra debugging output to standard-out.')),
 ]
@@ -1139,13 +1142,18 @@ class ColorPalette:
         self.user_color_map: Mapping[int, int] = {}
         self.cpu_activity_color = QColor(0x3491e1)
         self.rss_color = QColor(0x000000)
+        self.uss_color = QColor(0xff0000)
+        self.shared_color = QColor(0xffc800)
+        self.read_indicator_color = QColor(0x00aa00)
+        self.write_indicator_color = QColor(0xff0000)
         self.new_process_color = QColor(0xf8b540)
         self.search_match_color = QColor(0x00aa00)
-        self.root_user_color = QColor(0xd2d2d2)
+        self.root_user_color = QColor(0xe2e2e2)
+
         # Starting colors, when they run out we use a random selection
         self.default_user_colors = [QColor(c) for c in
-                                    [0xb4beee, 0xb0dcd5, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xe7e4bb,
-                                     0xf0e0b9, 0xc0d3ee, 0xb5c3f0, ]]
+                                    [0xb4beee, 0x67dcb9, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xa4e805,
+                                     0xf0c6a1, 0xc0d3ee, 0xb5c3f0, 0xa7dbee, 0xb5c3f0, 0xffaaff]]
 
     def to_hex(self, color: QColor):
         return color.name()
@@ -1250,21 +1258,21 @@ class ColorPalettePanel(QWidget):
         scroll_area = QScrollArea(self)
         container = QWidget(scroll_area)
         self.grid_layout = QGridLayout()
-        self.layout_ui()
+        self.layout_ui(global_colors)
         container.setLayout(self.grid_layout)
         scroll_area.setWidget(container)
         layout = QVBoxLayout()
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
-    def layout_ui(self):
+    def layout_ui(self, color_palette: ColorPalette):
         self.editor_map = {}
         grid_layout = self.grid_layout
         for widget in grid_layout.children():
             self.grid_layout.removeWidget(widget)
         col_sequence = (1, 3, 6)
         row_number = 0
-        for i, (color_name, value) in enumerate(global_colors.get_color_map().items()):
+        for i, (color_name, value) in enumerate(color_palette.get_color_map().items()):
             row_number += 2 if i % len(col_sequence) == 0 else 0
             column_number = col_sequence[i % len(col_sequence)]
             color_editor = ColorEditor(self, color_name, value)
@@ -1277,7 +1285,7 @@ class ColorPalettePanel(QWidget):
 
     def copy_from_config(self, config_section: Mapping[str, str]):
         global_colors.copy_from_config(config_section)
-        self.layout_ui()
+        self.layout_ui(global_colors)
 
     def copy_to_config(self, config_section: Mapping[str, str]):
         for option_id, editor in self.editor_map.items():
@@ -1335,13 +1343,18 @@ class ConfigPanel(QDialog):
         button_box = QWidget()
         button_box_layout = QHBoxLayout()
         button_box.setLayout(button_box_layout)
-        apply_button = QPushButton(tr("Apply"))
-        apply_button.setIcon(get_icon(ICON_APPLY))
+        defaults_button = QPushButton(tr("Defaults"))
+        defaults_button.setIcon(get_icon(ICON_DEFAULTS))
+        button_box_layout.addWidget(defaults_button)
+        spacer = QLabel('          ')
+        button_box_layout.addWidget(spacer)
         revert_button = QPushButton(tr("Revert"))
         revert_button.setIcon(get_icon(ICON_REVERT))
         button_box_layout.addWidget(revert_button)
-        spacer = QLabel('          ')
+        spacer = QLabel('    ')
         button_box_layout.addWidget(spacer)
+        apply_button = QPushButton(tr("Apply"))
+        apply_button.setIcon(get_icon(ICON_APPLY))
         button_box_layout.addWidget(apply_button)
 
         self.status_bar = QStatusBar()
@@ -1395,6 +1408,25 @@ class ConfigPanel(QDialog):
             info("UI reloading config from file.") if debugging else None
             options_panel.copy_from_config(self.config['options'])
             color_palette_panel.copy_from_config(self.config['colors'])
+
+        def defaults_action():
+            defaults_message = QMessageBox(self)
+            defaults_message.setText(tr("Reset which tabs to defaults?"))
+            defaults_message.setIcon(QMessageBox.Question)
+            defaults_message.addButton(tr("Options"), QMessageBox.AcceptRole)
+            defaults_message.addButton(tr("Colors"), QMessageBox.AcceptRole)
+            defaults_message.addButton(tr("Both"), QMessageBox.AcceptRole)
+            defaults_message.addButton(QMessageBox.Cancel)
+            choice = defaults_message.exec()
+            if choice == QMessageBox.Cancel:
+                return
+            if choice == 0 or choice == 2:
+                options_panel.copy_from_config(Config()['options'])
+            if choice == 1 or choice == 2:
+                tmp_palette = ColorPalette()
+                color_palette_panel.layout_ui(tmp_palette)
+
+        defaults_button.clicked.connect(defaults_action)
 
         revert_button.clicked.connect(revert_action)
 
@@ -1878,27 +1910,27 @@ class ProcessDotsWidget(QLabel):
 
             if uss_enabled and process_info.uss != 0:
                 uss_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.uss) / self.pi_over_4))
-                dot_painter.setPen(QPen(QColor(0xff0000)))
+                dot_painter.setPen(QPen(global_colors.uss_color))
                 dot_painter.setBrush(Qt.NoBrush)
                 dot_painter.setOpacity(1.0)
                 dot_painter.drawEllipse(x - uss_ring_diameter // 2, y - uss_ring_diameter // 2, uss_ring_diameter, uss_ring_diameter)
 
             if shared_enabled:
                 shared_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.shared) / self.pi_over_4))
-                dot_painter.setPen(QPen(QColor(0x00cc00)))
+                dot_painter.setPen(QPen(global_colors.shared_color))
                 dot_painter.setBrush(Qt.NoBrush)
                 dot_painter.setOpacity(1.0)
                 dot_painter.drawEllipse(x - shared_ring_diameter // 2, y - shared_ring_diameter // 2, shared_ring_diameter, shared_ring_diameter)
 
             if io_indicators_enabled:
                 if process_info.read_diff != 0:
-                    dot_painter.setPen(QPen(QColor(0x00aa00)))
-                    dot_painter.setBrush(QColor(0x00aa00))
+                    dot_painter.setPen(QPen(global_colors.read_indicator_color))
+                    dot_painter.setBrush(global_colors.read_indicator_color)
                     dot_painter.setOpacity(1.0)
                     dot_painter.drawEllipse(x - self.spacing // 2 + self.io_dot_diameter, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
                 if process_info.write_diff != 0:
-                    dot_painter.setPen(QPen(QColor(0xff0000)))
-                    dot_painter.setBrush(QColor(0xff0000))
+                    dot_painter.setPen(QPen(global_colors.write_indicator_color))
+                    dot_painter.setBrush(global_colors.write_indicator_color)
                     dot_painter.setOpacity(1.0)
                     dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
 
