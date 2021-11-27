@@ -210,6 +210,8 @@ notify_cpu_use_seconds = 30
 notify_rss_exceeded_mbytes = 1000
 notify_rss_growing_seconds = 5
 io_indicators_enabled = no
+uss_enabled = no
+shared_enabled = no
 
 [colors]
 
@@ -383,7 +385,7 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
                  tr('Notify if a process stays above the CPU threshold for this amount of time ({}..{} seconds)'),
                  (0, 300)),
     ConfigOption('notify_rss_exceeded_mbytes',
-                 tr('Process rss consumption threshold (1..100000 kbytes)'),
+                 tr('Process rss consumption threshold (1..100000 Mbytes)'),
                  (1, 100_000)),
     ConfigOption('notify_rss_growing_seconds',
                  tr('Notify if a process rss continues to grow above the threshold for this amount of time  ({}..{} seconds)'),
@@ -391,11 +393,15 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
     ConfigOption('system_tray_enabled', tr('procno should start minimised in the system-tray.')),
     ConfigOption('start_with_notifications_enabled', tr('procno should start with desktop notifications enabled.')),
     ConfigOption('io_indicators_enabled', tr("Show read/write indicators (not available for other user's processes).")),
+    ConfigOption('uss_enabled', tr("Show USS (Unique SS - not available for other user's processes).")),
+    ConfigOption('shared_enabled', tr("Show potentially shared.")),
     ConfigOption('debug_enabled', tr('Enable extra debugging output to standard-out.')),
 ]
 
 
 io_indicators_enabled = False
+uss_enabled = False
+shared_enabled = False
 
 debugging = True
 
@@ -697,13 +703,14 @@ class ProcessInfo:
         self.write_count = 0
         self.read_diff = 0
         self.write_diff = 0
+        self.uss = 0
+        self.shared = 0
+        self.io_accessible = True
         if io_indicators_enabled:
-            try:
-                io_counters = process.io_counters()
-                self.read_count = io_counters.read_count
-                self.write_count = io_counters.write_count
-            except psutil.AccessDenied as e:
-                pass
+            self.read_count, self.write_count = self.access_io_counters(process)
+        self.uss_accessible = True
+        if uss_enabled:
+            self.uss = self.access_uss(process)
         self.new_process = new_process
         self.cpu_burn_seconds = 0
         self.rss_growing_seconds = 0
@@ -726,33 +733,30 @@ class ProcessInfo:
         now = time.time()
         elapsed_seconds = now - self.last_update
         self.last_update = now
-        if process is not None:
-            cpu_times = process.cpu_times()
-            utime = cpu_times.user
-            stime = cpu_times.system
-            cpu_diff = (utime + stime) - (self.utime + self.stime)
-            rss = process.memory_info().rss
-            rss_diff = rss - self.rss
-            self.utime = utime
-            self.stime = stime
-            self.rss = rss
-            self.cpu_diff = cpu_diff
-            self.read_diff = 0
-            self.write_diff = 0
-            if io_indicators_enabled:
-                try:
-                    io_counters = process.io_counters()
-                    read_count = io_counters.read_count
-                    write_count = io_counters.write_count
-                    self.read_diff = read_count - self.read_count
-                    self.write_diff = write_count - self.write_count
-                    self.read_count = read_count
-                    self.write_count = write_count
-                except psutil.AccessDenied as e:
-                    self.read_count = 0
-                    self.write_count = 0
-            # Don't do unnecessary expensive math - this is called a lot.
-            self.current_cpu_percent = 0.0 if cpu_diff == 0 else math.ceil(100.0 * cpu_diff / elapsed_seconds)
+        cpu_times = process.cpu_times()
+        utime = cpu_times.user
+        stime = cpu_times.system
+        cpu_diff = (utime + stime) - (self.utime + self.stime)
+        rss = process.memory_info().rss
+        rss_diff = rss - self.rss
+        self.utime = utime
+        self.stime = stime
+        self.rss = rss
+        self.cpu_diff = cpu_diff
+        self.read_diff = 0
+        self.write_diff = 0
+        if shared_enabled:
+            self.shared = process.memory_info().shared
+        if uss_enabled and self.uss_accessible:
+            self.uss = self.access_uss(process)
+        if io_indicators_enabled and self.io_accessible:
+            read_count, write_count = self.access_io_counters(process)
+            self.read_diff = read_count - self.read_count
+            self.write_diff = write_count - self.write_count
+            self.read_count = read_count
+            self.write_count = write_count
+        # Don't do unnecessary expensive math - this is called a lot.
+        self.current_cpu_percent = 0.0 if cpu_diff == 0 else math.ceil(100.0 * cpu_diff / elapsed_seconds)
         # if self.current_cpu_percent > 95:
         #    print(self.pid, self.current_cpu_percent, cpu_diff / system_ticks_per_second, elapsed_seconds)
         if self.current_cpu_percent >= cpu_burn_ratio:
@@ -763,11 +767,26 @@ class ProcessInfo:
         # Don't do unnecessary expensive math - this is called a lot.
         if self.rss_diff != 0:
             self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
-        if rss_diff > 0 and rss > rss_exceeded_mbytes * 1000:
+        if rss_diff > 0 and rss > rss_exceeded_mbytes * 1_000_000:
             self.rss_growing_seconds += elapsed_seconds
         else:
             self.rss_growing_seconds = 0
         return self
+
+    def access_io_counters(self, process):
+        try:
+            io_counters = process.io_counters()
+            return io_counters.read_count, io_counters.write_count
+        except psutil.AccessDenied as e:
+            self.io_accessible = False
+        return 0, 0
+
+    def access_uss(self, process):
+        try:
+            return process.memory_full_info().uss
+        except psutil.AccessDenied as e:
+            self.uss_accessible = False
+        return 0
 
     def text(self, compact: bool = False):
         cmdline_text = str(self.cmdline)
@@ -801,8 +820,8 @@ class ProcessWatcher:
         self.notify_rss_exceeded_mbytes = 1000
         self.notify_rss_growing_seconds = 10
         self.config.refresh()
-        self.update_settings_from_config()
         self.past_data: Mapping[int, ProcessInfo] = {}
+        self.update_settings_from_config()
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
@@ -829,6 +848,12 @@ class ProcessWatcher:
         global io_indicators_enabled
         io_indicators_enabled = self.config.getboolean(
             'options', 'io_indicators_enabled', fallback=False)
+        global uss_enabled
+        uss_enabled = self.config.getboolean(
+            'options', 'uss_enabled', fallback=False)
+        global shared_enabled
+        shared_enabled = self.config.getboolean(
+            'options', 'shared_enabled', fallback=False)
         if 'debug' in self.config['options']:
             global debugging
             debugging = self.config.getboolean('options', 'debug')
@@ -839,7 +864,7 @@ class ProcessWatcher:
 
     def watch_processes(self):
         self._stop = False
-        notify = NotifyFreeDesktop()
+        notify = NotifyFreeDesktop() if self.notifications_enabled else None
         initialised = len(self.past_data) != 0
         while True:
             if self.is_stop_requested():
@@ -847,6 +872,7 @@ class ProcessWatcher:
             try:
                 if self.config.refresh():
                     self.update_settings_from_config()
+                    initialised = False
                 data = self.read_data_from_psutil(initialised, notify)
                 initialised = True
                 self.supervisor.new_data(data)
@@ -1837,38 +1863,44 @@ class ProcessDotsWidget(QLabel):
 
             ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.rss) / self.pi_over_4))
 
+
             # if process_info.previous_paint_values != paint_values:
             # Need to paint everything in case the canvas has been cleared for some reason
             dot_painter.setPen(QPen(dot_color))
             dot_painter.setOpacity(1.0)
             dot_painter.setBrush(dot_color)
             dot_painter.drawEllipse(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter)
+
             dot_painter.setPen(rss_ring_pen)
             dot_painter.setBrush(Qt.NoBrush)
             dot_painter.setOpacity(0.4)
             dot_painter.drawEllipse(x - ring_diameter // 2, y - ring_diameter // 2, ring_diameter, ring_diameter)
 
-            # if process_info.read_diff != 0:
-            #     dot_painter.setPen(QPen(QColor(0x00ff00)))
-            #     dot_painter.setBrush(QColor(0x00ff00))
-            #     dot_painter.setOpacity(1.0)
-            #     dot_painter.drawPie(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter, 5*16, -10*16)
-            # if process_info.write_diff != 0:
-            #     dot_painter.setPen(QPen(QColor(0x000000)))
-            #     dot_painter.setBrush(QColor(0xff0000))
-            #     dot_painter.setOpacity(1.0)
-            #     dot_painter.drawPie(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter, 185*16, -10*16)
-
-            if process_info.read_diff != 0:
-                dot_painter.setPen(QPen(QColor(0x00aa00)))
-                dot_painter.setBrush(QColor(0x00aa00))
-                dot_painter.setOpacity(1.0)
-                dot_painter.drawEllipse(x - self.spacing // 2 + self.io_dot_diameter, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
-            if process_info.write_diff != 0:
+            if uss_enabled and process_info.uss != 0:
+                uss_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.uss) / self.pi_over_4))
                 dot_painter.setPen(QPen(QColor(0xff0000)))
-                dot_painter.setBrush(QColor(0xff0000))
+                dot_painter.setBrush(Qt.NoBrush)
                 dot_painter.setOpacity(1.0)
-                dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
+                dot_painter.drawEllipse(x - uss_ring_diameter // 2, y - uss_ring_diameter // 2, uss_ring_diameter, uss_ring_diameter)
+
+            if shared_enabled:
+                shared_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.shared) / self.pi_over_4))
+                dot_painter.setPen(QPen(QColor(0x00cc00)))
+                dot_painter.setBrush(Qt.NoBrush)
+                dot_painter.setOpacity(1.0)
+                dot_painter.drawEllipse(x - shared_ring_diameter // 2, y - shared_ring_diameter // 2, shared_ring_diameter, shared_ring_diameter)
+
+            if io_indicators_enabled:
+                if process_info.read_diff != 0:
+                    dot_painter.setPen(QPen(QColor(0x00aa00)))
+                    dot_painter.setBrush(QColor(0x00aa00))
+                    dot_painter.setOpacity(1.0)
+                    dot_painter.drawEllipse(x - self.spacing // 2 + self.io_dot_diameter, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
+                if process_info.write_diff != 0:
+                    dot_painter.setPen(QPen(QColor(0xff0000)))
+                    dot_painter.setBrush(QColor(0xff0000))
+                    dot_painter.setOpacity(1.0)
+                    dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
 
             if self.re_target is not None:
                 text = str(process_info)
@@ -1892,7 +1924,6 @@ class ProcessDotsWidget(QLabel):
         return None
 
     def resizeEvent(self, event: QResizeEvent) -> None:
-        print('now')
         self.update_pixmap()
         event.accept()
 
