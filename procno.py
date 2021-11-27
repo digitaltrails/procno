@@ -166,7 +166,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QHBoxLayout, QStyleFactory, QToolButton, QScrollArea, QLayout, QStatusBar, QToolTip, QComboBox, QTabWidget, \
     QColorDialog
 
-PROGRAM_VERSION = '1.0.0'
+PROGRAM_VERSION = '1.1.0'
 
 
 def get_program_name() -> str:
@@ -671,10 +671,10 @@ class NotifyFreeDesktop:
     def notify_desktop(self, app_name: str, summary: str, message: str, timeout: int):
         # https://specifications.freedesktop.org/notification-spec/notification-spec-latest.html
         replace_id = 0
-        notification_icon = 'dialog-warning'
+        notification_icon = 'dialog-error'
         action_requests = []
         # extra_hints = {"urgency": 1, "sound-name": "dialog-warning", }
-        extra_hints = {}
+        extra_hints = {"urgency": 2}
         self.notify_interface.Notify(app_name,
                                      replace_id,
                                      notification_icon,
