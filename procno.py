@@ -57,8 +57,8 @@ Procno is designed to increase awareness of background activity.  Possibilities 
  * Identifying unnecessary services that are present and idle.
  * Entertaining the cat.
 
-Options
--------
+Optional metrics
+----------------
 Procno can optionally report some other process metrics:
 
   * USS: unique set size, this should more accurately reflect memory consumption, but it appears to be

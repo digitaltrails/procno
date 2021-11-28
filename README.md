@@ -39,7 +39,27 @@ An explanation the video or screenshot:
 
 Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 
- * TODO
+ * Detecting runaway processes, either CPU or RAM.
+ * Getting a quick overview of where resources are going.
+ * Looking for patterns in resource consumption.
+ * Identifying unnecessary services that are present and idle.
+ * Entertaining the cat.
+ 
+Optional metrics
+----------------
+Procno can optionally report some other process metrics:
+
+  * USS: unique set size, this should more accurately reflect memory consumption, but it appears to be
+    very expensive to collect, procno's CPU consumption jumps from around 8% to 50% if USS stats
+    are enabled. In respect to my own desktop, RSS is pretty similar to USS for the applications
+    that consume the bulk of most memory.  Another issue with USS is that access to USS is limited,
+    USS will only be shown for your own processes.
+  * Shared memory: this is inexpensive to report but is not confined to RSS or USS, so may not be
+    a good indicator of pressure on the system.
+  * I/O: this is a basic indicator of whether read/write occurred in the last period.  Most processes
+    are continually doing some amount of I/O, so perhaps this is not that useful, although a
+    continuous-on indicator may be an indication of pressure in some circumstances.  Access to
+    I/O read/write counts is restricted, I/O indicators will only be shown for your own processes.
 
 
 Getting Started
