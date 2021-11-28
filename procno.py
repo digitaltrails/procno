@@ -181,10 +181,10 @@ from typing import Mapping, List, Type, Callable, Tuple
 import dbus
 import psutil
 from PyQt5.QtCore import QCoreApplication, QProcess, Qt, pyqtSignal, QThread, QSize, \
-    QEvent, QSettings, QObject, QRegExp
+    QEvent, QSettings, QObject, QRegExp, QRect
 from PyQt5.QtGui import QPixmap, QIcon, QImage, QPainter, QIntValidator, \
     QFontDatabase, QCloseEvent, QPalette, QColor, QPen, QMouseEvent, QWheelEvent, QResizeEvent, \
-    QRegExpValidator
+    QRegExpValidator, QGuiApplication
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLineEdit, QLabel, \
     QPushButton, QSystemTrayIcon, QMenu, QTextEdit, QDialog, QCheckBox, QGridLayout, QMainWindow, QSizePolicy, QToolBar, \
@@ -769,6 +769,7 @@ class ProcessInfo:
             self.effective_username = None
         self.user_color = None
         self.grow_notified_id = self.burn_notified_id = 0
+        self.alive = True
 
     def updated(self, process: psutil.Process, cpu_burn_ratio, rss_exceeded_mbytes):
         # Trying to be frugal, not copying to a new ProcInfo, might mean the GUI sees the object as it's
@@ -838,8 +839,10 @@ class ProcessInfo:
         cmdline_text = str(self.cmdline)
         if compact and len(cmdline_text) > 30:
             cmdline_text = cmdline_text[0:30] + '..'
+        finished = ' \u25b7Finished\u25c1' if not self.alive else ''
         return \
-            f"PID: {self.pid}\ncomm: {self.comm}\ncmdline: {cmdline_text}\n" + \
+            f"PID: {self.pid}{finished}\ncomm: {self.comm}\n" \
+            f"cmdline: {cmdline_text}\n" + \
             f"CPU: {self.current_cpu_percent:2.0f}% utime: {self.utime} stime: {self.stime}\n" + \
             f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss / 1_000_000:.3f} Mbytes\n" + \
             (f"USS: {self.uss}\n" if uss_enabled else '') + \
@@ -930,10 +933,12 @@ class ProcessWatcher:
 
     def read_data_from_psutil(self, initialised, notify):
         data = []
+        dead_set = set(self.past_data.keys())
         for process in psutil.process_iter():
             with process.oneshot():
                 pid = process.pid
                 if pid in self.past_data:
+                    dead_set.remove(pid)
                     proc_info = self.past_data[pid].updated(
                         process,
                         self.notify_cpu_use_percent, self.notify_rss_exceeded_mbytes)
@@ -945,6 +950,10 @@ class ProcessWatcher:
                 if proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
                     self.notify_rss_growing(notify, proc_info)
                 data.append(proc_info)
+        for pid in dead_set:
+            dead_process = self.past_data[pid]
+            dead_process.alive = False
+            del(self.past_data[pid])
         return data
 
     def notify_cpu_burning(self, notify: NotifyFreeDesktop, proc_info: ProcessInfo):
@@ -1719,16 +1728,23 @@ class MainContextMenu(QMenu):
 
 
 class ProcessControlWidget(QDialog):
+
+    instance_map: Mapping[int, 'ProcessControlWidget'] = {}
+
     def __init__(self, process_info: ProcessInfo, parent: QWidget):
         super().__init__(parent=parent)
         self.setWindowFlag(Qt.Window, True)
+
         self.process_info = process_info
+
         layout = QVBoxLayout()
         self.setLayout(layout)
 
         short_name = process_info.comm if process_info.comm != '' else process_info.cmdline
         if len(short_name) > 20:
             short_name = short_name[0:18] + '..'
+
+        self.setWindowTitle(f"{process_info.pid} {short_name}")
 
         title = big_label(QLabel("PID {}: {}".format(process_info.pid, short_name)))
         layout.addWidget(title)
@@ -1806,9 +1822,44 @@ class ProcessControlWidget(QDialog):
         button_box_layout.addWidget(close_button)
 
         layout.addWidget(button_box)
+        ProcessControlWidget.instance_map[process_info.pid] = self
+        self.pick_geometry(parent)
+
+    def pick_geometry(self, parent: QWidget) -> QRect:
+        self.adjustSize()
+        pg = parent.geometry()
+        g = self.geometry()
+        h = g.height() + 70
+        # Allow a few instances above or below the main window
+        if len(ProcessControlWidget.instance_map) <= pg.width() / g.width():
+            if h < pg.y():
+                g.setY(pg.y() - h)
+                g.setX(pg.x() + (len(ProcessControlWidget.instance_map) - 1) * (g.width() + 10))
+                self.setGeometry(g)
+                self.adjustSize()
+                return
+            else:
+                sh = QGuiApplication.primaryScreen().geometry().height()
+                if h < sh - pg.height():
+                    g.setY(pg.y() + pg.height() + 70)
+                    g.setX(pg.x() + (len(ProcessControlWidget.instance_map) - 1) * (g.width() + 10))
+                    self.setGeometry(g)
+                    self.adjustSize()
+                    return
+        # Fall back to a small offset for each instance.
+        offset = 20 * (len(ProcessControlWidget.instance_map) - 1)
+        g.setX(pg.x() + (pg.width() - g.width()) // 2 + offset)
+        g.setY(pg.y() + (pg.height() - g.height()) // 2 + offset)
+        self.setGeometry(g)
+        self.adjustSize()
+        return
 
     def update_data(self):
         self.text_view.setText(str(self.process_info))
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        del(ProcessControlWidget.instance_map[self.process_info.pid])
+        event.accept()
 
 
 class ProcessDotsWidget(QLabel):
@@ -2022,9 +2073,14 @@ class ProcessDotsWidget(QLabel):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         process_info = self.get_process_info(event)
         if process_info is not None:
-            info_widget = ProcessControlWidget(process_info, self.parent())
-            self.signal_new_data.connect(info_widget.update_data)
+            if process_info.pid in ProcessControlWidget.instance_map:
+                info_widget = ProcessControlWidget.instance_map[process_info.pid]
+            else:
+                info_widget = ProcessControlWidget(process_info, self.parent())
+                self.signal_new_data.connect(info_widget.update_data)
             info_widget.show()
+            info_widget.raise_()
+            info_widget.activateWindow()
             event.ignore()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
