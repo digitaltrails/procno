@@ -79,5 +79,7 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons
 
 %changelog
 
+* Sun Nov 28 2021 Michael Hamilton <michael@actrix.gen.nz>
+- More color options. Single updating message per incident.
 * Sun Oct 25 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Packaged for rpm procno 1.0.0
