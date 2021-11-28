@@ -173,26 +173,24 @@ import sys
 import textwrap
 import time
 import traceback
-from functools import partial
 from html import escape
 from io import StringIO
 from pathlib import Path
-from threading import Thread
 from typing import Mapping, List, Type, Callable, Tuple
 
 import dbus
-from dbus.mainloop.glib import DBusGMainLoop
 import psutil
 from PyQt5.QtCore import QCoreApplication, QProcess, Qt, pyqtSignal, QThread, QSize, \
     QEvent, QSettings, QObject, QRegExp
 from PyQt5.QtGui import QPixmap, QIcon, QImage, QPainter, QIntValidator, \
-    QFontDatabase, QCloseEvent, QPalette, QColor, QPen, QMouseEvent, QWheelEvent, QGuiApplication, QResizeEvent, \
+    QFontDatabase, QCloseEvent, QPalette, QColor, QPen, QMouseEvent, QWheelEvent, QResizeEvent, \
     QRegExpValidator
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLineEdit, QLabel, \
     QPushButton, QSystemTrayIcon, QMenu, QTextEdit, QDialog, QCheckBox, QGridLayout, QMainWindow, QSizePolicy, QToolBar, \
     QHBoxLayout, QStyleFactory, QToolButton, QScrollArea, QLayout, QStatusBar, QToolTip, QComboBox, QTabWidget, \
     QColorDialog
+from dbus.mainloop.glib import DBusGMainLoop
 
 PROGRAM_VERSION = '1.1.0'
 
@@ -1824,7 +1822,7 @@ class ProcessDotsWidget(QLabel):
         palette = self.palette()
         palette.setColor(self.backgroundRole(), Qt.white)
         self.setPalette(palette)
-        self.data: List[ProcessInfo] = {}
+        self.data: List[ProcessInfo] = []
         self.past_data: List[ProcessInfo] = []
         self.dot_diameter = 0
         self.spacing = 0
