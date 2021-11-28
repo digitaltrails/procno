@@ -328,9 +328,7 @@ SVG_TOOLBAR_HAMBURGER_MENU = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox
   </defs>
  <path 
      style="fill:currentColor;fill-opacity:1;stroke:none" 
-	d="m3 5v2h16v-2h-16m0 5v2h16v-2h-16m0 5v2h16v-2h-16"
-	 class="ColorScheme-Text"
-     />
+     d="m3 5v2h16v-2h-16m0 5v2h16v-2h-16m0 5v2h16v-2h-16" class="ColorScheme-Text" />
 </svg>
 """
 
@@ -420,13 +418,13 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
                  (0, 60)),
     ConfigOption('system_tray_enabled', tr('procno should start minimised in the system-tray.')),
     ConfigOption('start_with_notifications_enabled', tr('procno should start with desktop notifications enabled.')),
-    ConfigOption('io_indicators_enabled', tr("Show read/write indicators\n(not available for other user's processes).")),
-    ConfigOption('uss_enabled', tr("Show USS - Unique SS - obtaining USS is expensive CPU wise\n" 
+    ConfigOption('io_indicators_enabled',
+                 tr("Show read/write indicators\n(not available for other user's processes).")),
+    ConfigOption('uss_enabled', tr("Show USS - Unique SS - obtaining USS is expensive CPU wise\n"
                                    "(not available for other user's processes).")),
     ConfigOption('shared_enabled', tr("Show potentially shared.")),
     ConfigOption('debug_enabled', tr('Enable extra debugging output to standard-out.')),
 ]
-
 
 io_indicators_enabled = False
 uss_enabled = False
@@ -715,7 +713,7 @@ class NotifyFreeDesktop:
         extra_hints = {"urgency": 1}
         if replace_id != 0 and replace_id not in self.message_id_map:
             # user has dismissed this message
-            return
+            return replace_id
         message_id = self.notify_interface.Notify(app_name,
                                                   replace_id,
                                                   notification_icon,
@@ -729,9 +727,8 @@ class NotifyFreeDesktop:
 
 
 class ProcessInfo:
-    def __init__(self, pid, process: psutil.Process, new_process: bool):
+    def __init__(self, process: psutil.Process, new_process: bool):
         self.last_update = time.time()
-
         self.pid = process.pid
         self.real_uid, self.effective_uid, _ = process.uids()
         self.cmdline = process.cmdline()
@@ -767,7 +764,7 @@ class ProcessInfo:
                 self.effective_username = pwd.getpwuid(int(self.effective_uid)).pw_name
             else:
                 self.effective_username = None
-        except KeyError as e:
+        except KeyError:
             self.username = '<no name>'
             self.effective_username = None
         self.user_color = None
@@ -826,14 +823,14 @@ class ProcessInfo:
         try:
             io_counters = process.io_counters()
             return io_counters.read_count, io_counters.write_count
-        except psutil.AccessDenied as e:
+        except psutil.AccessDenied:
             self.io_accessible = False
         return 0, 0
 
     def access_uss(self, process):
         try:
             return process.memory_full_info().uss
-        except psutil.AccessDenied as e:
+        except psutil.AccessDenied:
             self.uss_accessible = False
         return 0
 
@@ -844,7 +841,7 @@ class ProcessInfo:
         return \
             f"PID: {self.pid}\ncomm: {self.comm}\ncmdline: {cmdline_text}\n" + \
             f"CPU: {self.current_cpu_percent:2.0f}% utime: {self.utime} stime: {self.stime}\n" + \
-            f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss/1_000_000:.3f} Mbytes\n" + \
+            f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss / 1_000_000:.3f} Mbytes\n" + \
             (f"Reads: {self.read_count} Writes: {self.write_count}\n" if io_indicators_enabled else '') + \
             f"Started: {self.start_time_text}\n" + \
             f"Real_UID: {self.real_uid} User={self.username}" + \
@@ -925,7 +922,7 @@ class ProcessWatcher:
                 data = self.read_data_from_psutil(initialised, notify)
                 initialised = True
                 self.supervisor.new_data(data)
-            except FileNotFoundError as e:
+            except FileNotFoundError:
                 pass
             time.sleep(self.polling_millis / 1000)
 
@@ -939,7 +936,7 @@ class ProcessWatcher:
                         process,
                         self.notify_cpu_use_percent, self.notify_rss_exceeded_mbytes)
                 else:
-                    proc_info = ProcessInfo(pid, process, initialised)
+                    proc_info = ProcessInfo(process, initialised)
                     self.past_data[pid] = proc_info
                 if proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
                     self.notify_cpu_burning(notify, proc_info)
@@ -962,11 +959,11 @@ class ProcessWatcher:
                 proc_info.comm,
                 ' '.join(proc_info.cmdline))
             proc_info.burn_notified_id = notify.notify_desktop(
-                    app_name=app_name,
-                    summary=summary,
-                    message=message,
-                    timeout=self.notification_timeout_millis,
-                    replace_id=proc_info.burn_notified_id)
+                app_name=app_name,
+                summary=summary,
+                message=message,
+                timeout=self.notification_timeout_millis,
+                replace_id=proc_info.burn_notified_id)
 
     def notify_rss_growing(self, notify: NotifyFreeDesktop, proc_info: ProcessInfo):
         if self.notifications_enabled:
@@ -977,7 +974,8 @@ class ProcessWatcher:
             # \U0001F4C8
             summary = tr("\u25b6PID={} [{}] High rss growth.").format(proc_info.pid, short_name)
             message = tr(
-                "rss has been growing for {:.0f} seconds\nRSS={:.0f} Mbytes. {:0.1f}% of memory\npid={}\ncomm={}\ncmdline={}").format(
+                "rss has been growing for {:.0f} seconds\nRSS={:.0f} Mbytes. {:0.1f}% of memory\n"
+                "pid={}\ncomm={}\ncmdline={}").format(
                 proc_info.rss_growing_seconds,
                 proc_info.rss / 1_000_000.0,
                 proc_info.rss_current_percent_of_system_vm,
@@ -1185,7 +1183,7 @@ class OptionsPanel(QWidget):
 
 class ColorPalette:
     def __init__(self):
-        self.user_color_map: Mapping[int, int] = {}
+        self.user_color_map: Mapping[int, QColor] = {}
         self.cpu_activity_color = QColor(0x3491e1)
         self.rss_color = QColor(0x000000)
         self.uss_color = QColor(0xff0000)
@@ -1197,18 +1195,18 @@ class ColorPalette:
         self.root_user_color = QColor(0xe2e2e2)
 
         # Starting colors, when they run out we use a random selection
-        self.default_user_colors = [QColor(c) for c in
-                                    [0xb4beee, 0x67dcb9, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xa4e805,
-                                     0xf0c6a1, 0xc0d3ee, 0xb5c3f0, 0xa7dbee, 0xb5c3f0, 0xffaaff]]
+        self.default_user_colors_hex = [QColor(c) for c in
+                                        [0xb4beee, 0x67dcb9, 0xb2eae2, 0xb2d7c7, 0xd7d3b9, 0xd9c1d9, 0xdad1c4, 0xa4e805,
+                                         0xf0c6a1, 0xc0d3ee, 0xb5c3f0, 0xa7dbee, 0xb5c3f0, 0xffaaff]]
 
-    def to_hex(self, color: QColor):
+    def to_hex(self, color: QColor) -> str:
         return color.name()
 
-    def set_color(self, name: str, hex: str):
+    def set_color(self, name: str, hex_str: str):
         if name.startswith('user_'):
-            self.user_color_map[name[len('user_'):]] = QColor(hex)
+            self.user_color_map[name[len('user_'):]] = QColor(hex_str)
         else:
-            self.__setattr__(name, QColor(hex))
+            self.__setattr__(name, QColor(hex_str))
 
     def get_color_map(self) -> Mapping[str, str]:
         return {
@@ -1225,9 +1223,9 @@ class ColorPalette:
             return self.user_color_map[username]
 
         used_colors = self.user_color_map.values()
-        while len(self.default_user_colors) != 0:
-            color = QColor(self.default_user_colors[0])
-            self.default_user_colors = self.default_user_colors[1:]
+        while len(self.default_user_colors_hex) != 0:
+            color = QColor(self.default_user_colors_hex[0])
+            self.default_user_colors_hex = self.default_user_colors_hex[1:]
             if color not in used_colors:
                 self.user_color_map[username] = color
                 return color
@@ -1256,9 +1254,9 @@ def add_color_swatch(color_label: QPushButton, value: str):
 
 
 class ColorEditor:
-    def __init__(self, parent: QWidget, color_name: str, hex: str):
+    def __init__(self, parent: QWidget, color_name: str, hex_str: str):
         tip = tr("Click on a color swatch to bing up the color selection dialog.")
-        self.color = QColor(hex)
+        self.color = QColor(hex_str)
         self.color_name_label = QLabel(color_name)
         self.color_name_label.setToolTip(tip)
 
@@ -1285,7 +1283,7 @@ class ColorEditor:
 
         self.input_widget = QLineEdit()
         self.input_widget.setValidator(QRegExpValidator(QRegExp("#[A-Fa-f0-9]{6}")))
-        self.input_widget.setText(hex)
+        self.input_widget.setText(hex_str)
         self.input_widget.textChanged.connect(editor_color_changed)
         self.input_widget.setToolTip(tip)
 
@@ -1298,7 +1296,7 @@ class ColorEditor:
 
 
 class ColorPalettePanel(QWidget):
-    def __init__(self, config_section: Mapping[str, str], parent: QWidget = None):
+    def __init__(self, parent: QWidget = None):
         super().__init__(parent=parent)
         self.editor_map: Mapping[str, ColorEditor] = {}
         scroll_area = QScrollArea(self)
@@ -1323,9 +1321,11 @@ class ColorPalettePanel(QWidget):
             column_number = col_sequence[i % len(col_sequence)]
             color_editor = ColorEditor(self, color_name, value)
             self.editor_map[color_name] = color_editor
-            grid_layout.addWidget(color_editor.color_name_label, row_number, column_number, 1, 2, alignment=Qt.AlignLeft)
+            grid_layout.addWidget(color_editor.color_name_label, row_number, column_number, 1, 2,
+                                  alignment=Qt.AlignLeft)
             grid_layout.addWidget(color_editor.color_swatch, row_number + 1, column_number)
-            grid_layout.addWidget(color_editor.input_widget, row_number + 1, column_number + 1, 1, 1, alignment=Qt.AlignLeft)
+            grid_layout.addWidget(color_editor.input_widget, row_number + 1, column_number + 1, 1, 1,
+                                  alignment=Qt.AlignLeft)
         grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         grid_layout.setHorizontalSpacing(20)
 
@@ -1384,7 +1384,7 @@ class ConfigPanel(QDialog):
         self.config.refresh()
 
         options_panel = OptionsPanel(self.config['options'], parent=self)
-        color_palette_panel = ColorPalettePanel(self.config['colors'], parent=self)
+        color_palette_panel = ColorPalettePanel(parent=self)
 
         button_box = QWidget()
         button_box_layout = QHBoxLayout()
@@ -1424,6 +1424,7 @@ class ConfigPanel(QDialog):
             self.status_bar.showMessage(tr("All changes have been saved."), 5000)
             debug(f'config saved ok') if debugging else None
             config_change()
+
         apply_button.clicked.connect(save_action)
 
         def revert_action():
@@ -1469,8 +1470,8 @@ class ConfigPanel(QDialog):
             if choice == 0 or choice == 2:
                 options_panel.copy_from_config(Config()['options'])
             if choice == 1 or choice == 2:
-                tmp_palette = ColorPalette()
-                color_palette_panel.layout_ui(tmp_palette)
+                tmp_default_palette = ColorPalette()
+                color_palette_panel.layout_ui(tmp_default_palette)
 
         defaults_button.clicked.connect(defaults_action)
 
@@ -1718,7 +1719,7 @@ class MainContextMenu(QMenu):
 class ProcessControlWidget(QDialog):
     def __init__(self, process_info: ProcessInfo, parent: QWidget):
         super().__init__(parent=parent)
-        self.setWindowFlag(True)
+        self.setWindowFlag(Qt.Window, True)
         self.process_info = process_info
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -1941,7 +1942,6 @@ class ProcessDotsWidget(QLabel):
 
             ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.rss) / self.pi_over_4))
 
-
             # if process_info.previous_paint_values != paint_values:
             # Need to paint everything in case the canvas has been cleared for some reason
             dot_painter.setPen(QPen(dot_color))
@@ -1959,26 +1959,30 @@ class ProcessDotsWidget(QLabel):
                 dot_painter.setPen(QPen(global_colors.uss_color))
                 dot_painter.setBrush(Qt.NoBrush)
                 dot_painter.setOpacity(1.0)
-                dot_painter.drawEllipse(x - uss_ring_diameter // 2, y - uss_ring_diameter // 2, uss_ring_diameter, uss_ring_diameter)
+                dot_painter.drawEllipse(x - uss_ring_diameter // 2, y - uss_ring_diameter // 2, uss_ring_diameter,
+                                        uss_ring_diameter)
 
             if shared_enabled:
                 shared_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.shared) / self.pi_over_4))
                 dot_painter.setPen(QPen(global_colors.shared_color))
                 dot_painter.setBrush(Qt.NoBrush)
                 dot_painter.setOpacity(1.0)
-                dot_painter.drawEllipse(x - shared_ring_diameter // 2, y - shared_ring_diameter // 2, shared_ring_diameter, shared_ring_diameter)
+                dot_painter.drawEllipse(x - shared_ring_diameter // 2, y - shared_ring_diameter // 2,
+                                        shared_ring_diameter, shared_ring_diameter)
 
             if io_indicators_enabled:
                 if process_info.read_diff != 0:
                     dot_painter.setPen(QPen(global_colors.read_indicator_color))
                     dot_painter.setBrush(global_colors.read_indicator_color)
                     dot_painter.setOpacity(1.0)
-                    dot_painter.drawEllipse(x - self.spacing // 2 + self.io_dot_diameter, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
+                    dot_painter.drawEllipse(x - self.spacing // 2 + self.io_dot_diameter, y - self.spacing // 2,
+                                            self.io_dot_diameter, self.io_dot_diameter)
                 if process_info.write_diff != 0:
                     dot_painter.setPen(QPen(global_colors.write_indicator_color))
                     dot_painter.setBrush(global_colors.write_indicator_color)
                     dot_painter.setOpacity(1.0)
-                    dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2, self.io_dot_diameter, self.io_dot_diameter)
+                    dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2,
+                                            self.io_dot_diameter, self.io_dot_diameter)
 
             if self.re_target is not None:
                 text = str(process_info)
@@ -2029,7 +2033,6 @@ class ProcessDotsWidget(QLabel):
             if 12 <= new_dot_diameter <= 64:
                 self.set_dot_diameter(new_dot_diameter)
         elif num_degrees is not None:
-            numSteps = num_degrees / 8 / 15;
             new_dot_diameter = self.dot_diameter + (1 if num_degrees.y() > 0 else -1)
             if 12 <= new_dot_diameter <= 64:
                 self.set_dot_diameter(new_dot_diameter)
