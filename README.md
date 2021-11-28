@@ -30,7 +30,10 @@ An explanation the video or screenshot:
  * Clicking on a dot brings up a small dialog with processed details that update dynamically.  The dialog
    includes an arming switch (a checkbox) that arms a signal dropdown which can be used to signal/terminate
    the process.
- * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised.
+ * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised. The notification
+   will continue to update as long as the process continues to offend.  If the notification is closed, no  
+   no further notifications will be raised while the process continues to offend.  When a processed ceases
+   to offend its notification status is reset, any subsequent offending will result in fresh notifications.
  * Procno can optionally run out of the system tray. Geometry and configuration is preserved
    across restarts. Procno dynamically adjusts to light and dark desktop themes.
 

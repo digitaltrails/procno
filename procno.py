@@ -42,11 +42,37 @@ DBUS Notifications as popup messages).  Procno's UI functions as follows:
  * Clicking on a dot brings up a small dialog with processed details that update dynamically.  The dialog
    includes an arming switch (a checkbox) that arms a signal dropdown which can be used to signal/terminate
    the process.
- * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised.
+ * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised. The notification
+   will continue to update as long as the process continues to offend.  If the notification is closed, no
+   no further notifications will be raised while the process continues to offend.  When a processed ceases
+   to offend its notification status is reset, any subsequent offending will result in fresh notifications.
+ * Procno can optionally run out of the system tray. Geometry and configuration is preserved
+   across restarts. Procno dynamically adjusts to light and dark desktop themes.
 
 Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 
- * TODO
+ * Detecting runaway processes, either CPU or RAM.
+ * Getting a quick overview of where resources are going.
+ * Looking for patterns in resource consumption.
+ * Identifying unnecessary services that are present and idle.
+ * Entertaining the cat.
+
+Options
+-------
+Procno can optionally report some other process metrics:
+
+  * USS: unique set size, this should more accurately reflect memory consumption, but it appears to be
+    very expensive to collect, procno's CPU consumption jumps from around 8% to 50% if USS stats
+    are enabled. In respect to my own desktop, RSS is pretty similar to USS for the applications
+    that consume the bulk of most memory.  Another issue with USS is that access to USS is limited,
+    USS will only be shown for your own processes.
+  * Shared memory: this is inexpensive to report but is not confined to RSS or USS, so may not be
+    a good indicator of pressure on the system.
+  * I/O: this is a basic indicator of whether read/write occurred in the last period.  Most processes
+    are continually doing some amount of I/O, so perhaps this is not that useful, although a
+    continuous-on indicator may be an indication of pressure in some circumstances.  Access to
+    I/O read/write counts is restricted, I/O indicators will only be shown for your own processes.
+
 
 Config files
 ------------
@@ -151,9 +177,11 @@ from functools import partial
 from html import escape
 from io import StringIO
 from pathlib import Path
+from threading import Thread
 from typing import Mapping, List, Type, Callable, Tuple
 
 import dbus
+from dbus.mainloop.glib import DBusGMainLoop
 import psutil
 from PyQt5.QtCore import QCoreApplication, QProcess, Qt, pyqtSignal, QThread, QSize, \
     QEvent, QSettings, QObject, QRegExp
@@ -665,24 +693,41 @@ class NotifyFreeDesktop:
 
     def __init__(self):
         self.notify_interface = dbus.Interface(
-            object=dbus.SessionBus().get_object("org.freedesktop.Notifications", "/org/freedesktop/Notifications"),
+            object=dbus.SessionBus(mainloop=DBusGMainLoop(set_as_default=True)).get_object(
+                "org.freedesktop.Notifications",
+                "/org/freedesktop/Notifications"),
             dbus_interface="org.freedesktop.Notifications")
 
-    def notify_desktop(self, app_name: str, summary: str, message: str, timeout: int):
+        self.message_id_map: Mapping[int, int] = {}
+
+        def notification_closed_handler(*args, **kwargs):
+            print(args)
+            message_id = args[0]
+            if message_id in self.message_id_map:
+                del self.message_id_map[message_id]
+
+        self.notify_interface.connect_to_signal("NotificationClosed", notification_closed_handler)
+
+    def notify_desktop(self, app_name: str, summary: str, message: str, timeout: int, replace_id: int = 0) -> int:
         # https://specifications.freedesktop.org/notification-spec/notification-spec-latest.html
-        replace_id = 0
         notification_icon = 'dialog-error'
         action_requests = []
         # extra_hints = {"urgency": 1, "sound-name": "dialog-warning", }
-        extra_hints = {"urgency": 2}
-        self.notify_interface.Notify(app_name,
-                                     replace_id,
-                                     notification_icon,
-                                     escape(summary).encode('UTF-8'),
-                                     escape(message).encode('UTF-8'),
-                                     action_requests,
-                                     extra_hints,
-                                     timeout)
+        # Urgency of 2 cannot time out.
+        extra_hints = {"urgency": 1}
+        if replace_id != 0 and replace_id not in self.message_id_map:
+            # user has dismissed this message
+            return
+        message_id = self.notify_interface.Notify(app_name,
+                                                  replace_id,
+                                                  notification_icon,
+                                                  escape(summary).encode('UTF-8'),
+                                                  escape(message).encode('UTF-8'),
+                                                  action_requests,
+                                                  extra_hints,
+                                                  timeout)
+        self.message_id_map[message_id] = message_id
+        return message_id
 
 
 class ProcessInfo:
@@ -728,6 +773,7 @@ class ProcessInfo:
             self.username = '<no name>'
             self.effective_username = None
         self.user_color = None
+        self.grow_notified_id = self.burn_notified_id = 0
 
     def updated(self, process: psutil.Process, cpu_burn_ratio, rss_exceeded_mbytes):
         # Trying to be frugal, not copying to a new ProcInfo, might mean the GUI sees the object as it's
@@ -766,6 +812,7 @@ class ProcessInfo:
             self.cpu_burn_seconds += elapsed_seconds
         else:
             self.cpu_burn_seconds = 0
+            self.burn_notified_id = 0
         self.rss_diff = rss_diff
         # Don't do unnecessary expensive math - this is called a lot.
         if self.rss_diff != 0:
@@ -774,6 +821,7 @@ class ProcessInfo:
             self.rss_growing_seconds += elapsed_seconds
         else:
             self.rss_growing_seconds = 0
+            self.grow_notified_id = 0
         return self
 
     def access_io_counters(self, process):
@@ -897,10 +945,8 @@ class ProcessWatcher:
                     self.past_data[pid] = proc_info
                 if proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
                     self.notify_cpu_burning(notify, proc_info)
-                    proc_info.cpu_burn_seconds = 0
                 if proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
                     self.notify_rss_growing(notify, proc_info)
-                    proc_info.rss_growing_seconds = 0
                 data.append(proc_info)
         return data
 
@@ -911,17 +957,18 @@ class ProcessWatcher:
                 short_name = short_name[0:18] + '..'
             app_name = "\u25b3 CPU consumption [{}]".format(short_name)
             summary = tr("\u25b6PID={} [{}] High CPU consumption.").format(proc_info.pid, short_name)
-            message = tr("CPU > {:.0f}% for at least {:.0f} seconds.\npid={}\ncomm={}\ncmdline={}").format(
+            message = tr("CPU > {:.0f}% for {:.0f} seconds.\npid={}\ncomm={}\ncmdline={}").format(
                 self.notify_cpu_use_percent,
                 proc_info.cpu_burn_seconds,
                 proc_info.pid,
                 proc_info.comm,
                 ' '.join(proc_info.cmdline))
-            notify.notify_desktop(
-                app_name=app_name,
-                summary=summary,
-                message=message,
-                timeout=self.notification_timeout_millis)
+            proc_info.burn_notified_id = notify.notify_desktop(
+                    app_name=app_name,
+                    summary=summary,
+                    message=message,
+                    timeout=self.notification_timeout_millis,
+                    replace_id=proc_info.burn_notified_id)
 
     def notify_rss_growing(self, notify: NotifyFreeDesktop, proc_info: ProcessInfo):
         if self.notifications_enabled:
@@ -932,18 +979,19 @@ class ProcessWatcher:
             # \U0001F4C8
             summary = tr("\u25b6PID={} [{}] High rss growth.").format(proc_info.pid, short_name)
             message = tr(
-                "rss has been growing for at least {:.0f} seconds\nRSS={:.0f} Mbytes. {:0.1f}% of memory\npid={}\ncomm={}\ncmdline={}").format(
+                "rss has been growing for {:.0f} seconds\nRSS={:.0f} Mbytes. {:0.1f}% of memory\npid={}\ncomm={}\ncmdline={}").format(
                 proc_info.rss_growing_seconds,
                 proc_info.rss / 1_000_000.0,
                 proc_info.rss_current_percent_of_system_vm,
                 proc_info.pid,
                 proc_info.comm,
                 ' '.join(proc_info.cmdline))
-            notify.notify_desktop(
+            proc_info.grow_notified_id = notify.notify_desktop(
                 app_name=app_name,
                 summary=summary,
                 message=message,
-                timeout=self.notification_timeout_millis)
+                timeout=self.notification_timeout_millis,
+                replace_id=proc_info.grow_notified_id)
 
 
 class ProcessWatcherTask(QThread):
