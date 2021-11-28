@@ -842,6 +842,8 @@ class ProcessInfo:
             f"PID: {self.pid}\ncomm: {self.comm}\ncmdline: {cmdline_text}\n" + \
             f"CPU: {self.current_cpu_percent:2.0f}% utime: {self.utime} stime: {self.stime}\n" + \
             f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss / 1_000_000:.3f} Mbytes\n" + \
+            (f"USS: {self.uss}\n" if uss_enabled else '') + \
+            (f"Shared: {self.shared}\n" if shared_enabled else '') + \
             (f"Reads: {self.read_count} Writes: {self.write_count}\n" if io_indicators_enabled else '') + \
             f"Started: {self.start_time_text}\n" + \
             f"Real_UID: {self.real_uid} User={self.username}" + \
