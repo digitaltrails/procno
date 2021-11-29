@@ -80,6 +80,7 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons
 %changelog
 
 * Sun Nov 28 2021 Michael Hamilton <michael@actrix.gen.nz>
-- More color options. Single updating message per incident.
+- Display process finish time. 1.1.1
+- More color options. Single updating message per incident. 1.1.0
 * Sun Oct 25 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Packaged for rpm procno 1.0.0

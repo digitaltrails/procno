@@ -192,7 +192,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.0'
+PROGRAM_VERSION = '1.1.1'
 
 
 def get_program_name() -> str:
@@ -739,6 +739,7 @@ class ProcessInfo:
         self.rss = process.memory_info().rss
         self.start_time = time.localtime(process.create_time())
         self.start_time_text = time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
+        self.end_time_text = None
         self.cpu_diff = 0
         self.rss_diff = 0
         self.current_cpu_percent = 0.0
@@ -849,6 +850,7 @@ class ProcessInfo:
             (f"Shared: {self.shared}\n" if shared_enabled else '') + \
             (f"Reads: {self.read_count} Writes: {self.write_count}\n" if io_indicators_enabled else '') + \
             f"Started: {self.start_time_text}\n" + \
+            (f"Finished {self.end_time_text}\n" if not self.alive else '') + \
             f"Real_UID: {self.real_uid} User={self.username}" + \
             ('' if self.effective_uid == self.real_uid else f"\nEffective_UID: {self.effective_uid}") + \
             ('' if self.effective_username is None else f" Effective_User={self.effective_username}")
@@ -953,6 +955,7 @@ class ProcessWatcher:
         for pid in dead_set:
             dead_process = self.past_data[pid]
             dead_process.alive = False
+            dead_process.end_time_text = time.strftime("%Y-%m-%d %H:%M:%S")
             del(self.past_data[pid])
         return data
 
