@@ -3,16 +3,14 @@ Procno: Process monitor and notifications forwarder
 
 A desktop process monitor with Freedesktop-Notifications forwarding. **Like "top", but not as we know it.**
 
-https://user-images.githubusercontent.com/5510901/142822739-f18e98d2-8ab1-42ca-97c6-ead17191bcba.mp4
-
-***This code is hot of the presses.  Features may change on a daily basis.***  That said, the code is 
-usually quite functional, I don't push it here unless I think it's solid.  I've had some success using it to 
-detect runaway processes, such as chrome suddenly deciding to burn a CPU continuously.  Feedback is welcome.
+Feedback is welcome.
 
 Description
 -----------
 
 ![Default](screen-shots/Screenshot_Large.png) 
+
+https://user-images.githubusercontent.com/5510901/142822739-f18e98d2-8ab1-42ca-97c6-ead17191bcba.mp4
 
 An explanation the video or screenshot:
 
