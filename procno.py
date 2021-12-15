@@ -192,7 +192,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.1'
+PROGRAM_VERSION = '1.1.2'
 
 
 def get_program_name() -> str:
@@ -929,7 +929,8 @@ class ProcessWatcher:
                 data = self.read_data_from_psutil(initialised, notify)
                 initialised = True
                 self.supervisor.new_data(data)
-            except FileNotFoundError:
+            except Exception as e:
+                print(e)
                 pass
             time.sleep(self.polling_millis / 1000)
 
@@ -2182,7 +2183,7 @@ class MainWindow(QMainWindow):
             self.config.refresh()
             global debugging
             debugging = self.config.getboolean('options', 'debug_enabled')
-            if self.config.getboolean('options', 'system_tray_enabled'):
+            if self.use_system_tray():
                 if not tray.isVisible():
                     tray.setVisible(True)
             else:
@@ -2235,7 +2236,7 @@ class MainWindow(QMainWindow):
         self.app_restore_state()
 
         tray.activated.connect(self.tray_activate_window)
-        if self.config.getboolean('options', 'system_tray_enabled'):
+        if self.use_system_tray():
             tray.setVisible(True)
         else:
             self.show()
@@ -2254,11 +2255,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         debug("closeEvent") if debugging else None
-        if self.config.getboolean('options', 'system_tray_enabled'):
+        if self.use_system_tray():
             self.tray_activate_window()
         else:
             self.app_save_state()
         super().closeEvent(event)
+
+    def use_system_tray(self):
+        return QSystemTrayIcon.isSystemTrayAvailable() and self.config.getboolean('options', 'system_tray_enabled')
 
     def tray_activate_window(self):
         if self.isVisible():

@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.1.0
+Version: 1.1.2
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
@@ -79,8 +79,10 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons
 
 %changelog
 
+* Sat Dec 04 2021 Michael Hamilton <michael@actrix.gen.nz>
+- Check if system tray is available before applying system_tray_enabled. 1.1.2
 * Sun Nov 28 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Display process finish time. 1.1.1
 - More color options. Single updating message per incident. 1.1.0
-* Sun Oct 25 2021 Michael Hamilton <michael@actrix.gen.nz>
+* Mon Oct 25 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Packaged for rpm procno 1.0.0
