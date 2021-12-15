@@ -192,7 +192,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.2'
+PROGRAM_VERSION = '1.1.3'
 
 
 def get_program_name() -> str:
@@ -1937,7 +1937,7 @@ class ProcessDotsWidget(QLabel):
         self.signal_new_data.emit()
 
     def highlight_matches(self, text: str, re_enabled: bool):
-        if text is None or len(text) < 3:
+        if text is None or len(text) < 2:
             self.re_target = None
         else:
             self.re_target = re.compile(text if re_enabled else re.escape(text))
