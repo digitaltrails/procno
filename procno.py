@@ -192,7 +192,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.3'
+PROGRAM_VERSION = '1.1.4'
 
 
 def get_program_name() -> str:
@@ -2072,7 +2072,11 @@ class ProcessDotsWidget(QLabel):
             if process_info is None:
                 QToolTip.hideText()
             else:
-                QToolTip.showText(event.globalPos(), str(process_info.text(compact=True)))
+                if QToolTip.isVisible():
+                    QToolTip.hideText()
+                    #QApplication.processEvents()
+                #QToolTip.showText(event.globalPos(), str(process_info.text(compact=True)), widget=self)
+                QToolTip.showText(self.mapToGlobal(event.pos()), str(process_info.text(compact=True)), widget=self)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         process_info = self.get_process_info(event)
@@ -2127,6 +2131,7 @@ class MainWindow(QMainWindow):
         info(f"Icon theme path={QIcon.themeSearchPaths()}")
         info(f"Icon theme '{QIcon.themeName()}' >> is_dark_theme()={is_dark_theme()}")
 
+        QGuiApplication.setDesktopFileName('procno')
         app_name = tr('procno')
         app.setWindowIcon(get_icon(SVG_PROGRAM_ICON_LIGHT))
         app.setApplicationDisplayName(app_name)

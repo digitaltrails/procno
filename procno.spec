@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.1.3
+Version: 1.1.4
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
@@ -47,7 +47,7 @@ exit 0
 %install
 mkdir -p %{buildroot}/%{_bindir}
 mkdir -p %{buildroot}/%{_datadir}/applications
-mkdir -p %{buildroot}/%{_datadir}/icons
+mkdir -p %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 install -m 755 procno.py  %{buildroot}/%{_bindir}/%{name}
 
 cat > %{name}.desktop <<'EOF'
@@ -63,7 +63,7 @@ Categories=Qt;System;Monitor;System;
 EOF
 
 install -m644 %{name}.desktop %{buildroot}/%{_datadir}/applications
-install -m644 %{name}.png %{buildroot}/%{_datadir}/icons
+install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 
 #gzip -c docs/_build/man/vdu_controls.1 > %{buildroot}/%{_datadir}/man/man1/%{name}.1.gz
 
@@ -75,10 +75,14 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons
 %defattr(-,root,root)
 %{_bindir}/%{name}
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/%{name}.png
+%{_datadir}/icons/hicolor/64x64/apps/%{name}.png
 
 %changelog
 
+* Fri Dec 17 2021 Michael Hamilton <michael@actrix.gen.nz>
+- Wayland compatability tweaks. 1.1.4
+* Wed Dec 15 2021 Michael Hamilton <michael@actrix.gen.nz>
+- Change minimum match to 2 chars to match 2 char commands. 1.1.3
 * Sat Dec 04 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Check if system tray is available before applying system_tray_enabled. 1.1.2
 * Sun Nov 28 2021 Michael Hamilton <michael@actrix.gen.nz>
