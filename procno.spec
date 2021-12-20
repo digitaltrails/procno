@@ -71,11 +71,14 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 
 
 %files
+%dir %{_datadir}/icons/hicolor
+%dir %{_datadir}/icons/hicolor/*
+%dir %{_datadir}/icons/hicolor/*/apps
 %license LICENSE.md
 %defattr(-,root,root)
 %{_bindir}/%{name}
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/*/apps/%{name}.png
+%{_datadir}/icons/hicolor/64x64/apps/%{name}.png
 
 %changelog
 
