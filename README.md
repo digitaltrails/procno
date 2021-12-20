@@ -10,6 +10,11 @@ Description
 
 ![Default](screen-shots/Screenshot_Large.png) 
 
+The festive season option (tree_enabled option with a dark desktop theme):
+
+![Default](screen-shots/Screenshot_festive.png)
+
+A brief video:
 https://user-images.githubusercontent.com/5510901/142822739-f18e98d2-8ab1-42ca-97c6-ead17191bcba.mp4
 
 An explanation the video or screenshot:
