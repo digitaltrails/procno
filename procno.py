@@ -2133,8 +2133,8 @@ class ProcessDotsWidget(QLabel):
             if process_info is None:
                 QToolTip.hideText()
             else:
-                if QToolTip.isVisible():
-                    QToolTip.hideText()
+                #if QToolTip.isVisible():
+                #    QToolTip.hideText()
                 # Works on X11
                 #QToolTip.showText(event.globalPos(), str(process_info.text(compact=True)), widget=self)
                 # Works on X11 and Wayland?
