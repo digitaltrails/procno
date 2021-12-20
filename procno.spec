@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.1.4
+Version: 1.1.5
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
@@ -79,6 +79,8 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 
 %changelog
 
+* Mon Dec 21 2021 Michael Hamilton <michael@actrix.gen.nz>
+- Festive tree. 1.1.5
 * Fri Dec 17 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Wayland compatability tweaks. 1.1.4
 * Wed Dec 15 2021 Michael Hamilton <michael@actrix.gen.nz>

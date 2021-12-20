@@ -192,7 +192,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.4'
+PROGRAM_VERSION = '1.1.5'
 
 
 def get_program_name() -> str:
@@ -239,6 +239,7 @@ notify_rss_growing_seconds = 5
 io_indicators_enabled = no
 uss_enabled = no
 shared_enabled = no
+tree_enabled = no
 
 [colors]
 
@@ -423,6 +424,7 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
     ConfigOption('uss_enabled', tr("Show USS - Unique SS - obtaining USS is expensive CPU wise\n"
                                    "(not available for other user's processes).")),
     ConfigOption('shared_enabled', tr("Show potentially shared.")),
+    ConfigOption('tree_enabled', tr("Festive layout.")),
     ConfigOption('debug_enabled', tr('Enable extra debugging output to standard-out.')),
 ]
 
@@ -1869,7 +1871,7 @@ class ProcessControlWidget(QDialog):
 class ProcessDotsWidget(QLabel):
     signal_new_data = pyqtSignal()
 
-    def __init__(self, parent: QMainWindow):
+    def __init__(self, config: Config, parent: 'MainWindow'):
         super().__init__(parent=parent)
         self.setObjectName("process_grid_window")
         self.dot_diameter_key = self.objectName() + ".dot_size"
@@ -1886,7 +1888,7 @@ class ProcessDotsWidget(QLabel):
         self.spacing = 0
         self.io_dot_diameter = 0
         self.set_dot_diameter(24)
-        self.config = Config()
+        self.config = config
         self.show_tips = True
         self.color_of_user_map = {}
         self.row_length = 0
@@ -1904,6 +1906,26 @@ class ProcessDotsWidget(QLabel):
         # self.setMinimumHeight(500)
         self.setLayout(QVBoxLayout())
         self.rgb = (200, 255, 255)
+        self.tree_map = {}
+        self.tree_enabled = False
+        self.rss_color = global_colors.rss_color
+        self.background_color = QColor(0xffffff)
+        self.update_settings_from_config(config)
+        parent.signal_theme_change.connect(self.apply_theme_change)
+
+    def apply_theme_change(self):
+        #print('rssl', self.rss_color.lightness(), self.rss_color.value())
+        if is_dark_theme():
+            self.background_color = QColor(0x41474d)  # 41474d 1b1e20
+            if self.rss_color.lightness() < 128:
+                self.rss_color = QColor(0xffffff)
+        else:
+            self.background_color = QColor(0xffffff)
+            if self.rss_color.lightness() > 128:
+                self.rss_color = QColor(0x000000)
+        palette = self.palette()
+        palette.setColor(self.backgroundRole(), self.background_color)
+        self.setPalette(palette)
 
     def set_dot_diameter(self, diameter: int):
         self.dot_diameter = diameter
@@ -1920,10 +1942,14 @@ class ProcessDotsWidget(QLabel):
             debug(f"Restore {self.dot_diameter_key}") if debugging else None
             self.set_dot_diameter(int(settings.value(self.dot_diameter_key, None)))
 
-    def update_settings_from_config(self):
+    def update_settings_from_config(self, config: Config):
+        self.config = config
         info('Dot widget clearing cached user colors.')
         for process_info in self.data:
             process_info.user_color = None
+        self.tree_enabled = self.config.getboolean('options', 'tree_enabled', fallback=False)
+        self.rss_color = global_colors.rss_color
+        self.apply_theme_change()
 
     def update_data(self, data: Mapping):
         self.past_data = self.data
@@ -1951,6 +1977,20 @@ class ProcessDotsWidget(QLabel):
         process_info.user_color = color
         return color
 
+    def tree_coordinates(self, number_of_leaves: int):
+        coordinates = []
+        leaf_count = 0
+        for row_num in range(0, number_of_leaves):
+            tree_width = row_num * 2 + 1
+            for col_num in range(-tree_width // 2 + 1, tree_width // 2 + 1):
+                coordinates.append((row_num + 1, col_num,))
+                leaf_count += 1
+                if leaf_count >= number_of_leaves:
+                    #print(coordinates)
+                    coordinates.reverse()
+                    return row_num, coordinates
+        return 0, coordinates
+
     def update_pixmap(self):
         if self.data is None or len(self.data) == 0:
             return
@@ -1959,17 +1999,25 @@ class ProcessDotsWidget(QLabel):
 
         # rss_ring_area_unit = Area of the Gig ring divided by gig_rss (Kbytes quantity)
         rss_ring_area_unit = self.pi_over_4 * (self.gig_ring_diameter ** 2) / self.gig_rss
-        rss_ring_pen = QPen(global_colors.rss_color)
+        rss_ring_pen = QPen(self.rss_color)
         rss_ring_pen.setStyle(Qt.DashLine)
-        rss_ring_pen.setWidth(1)
+        rss_ring_pen.setWidth(2 if self.rss_color.lightness() > 128 else 1)
 
         match_ring_diameter = self.dot_diameter + 4
         match_highlight_pen = QPen(global_colors.search_match_color)
         match_highlight_pen.setWidth(self.dot_diameter // 6)
 
-        pixmap = QPixmap((self.row_length + 1) * self.spacing, self.spacing * ((len(self.data) // self.row_length) + 3))
-        pixmap.fill(QColor(0xffffff))
+        if self.tree_enabled:
+            self.tree_map = {}
+            row_count, tree_coords = self.tree_coordinates(len(self.data))
+            # print(tree_coords)
+            pixmap = QPixmap((self.row_length + 1) * self.spacing, self.spacing * (row_count + 3))
+        else:
+            pixmap = QPixmap((self.row_length + 1) * self.spacing, self.spacing * ((len(self.data) // self.row_length) + 3))
+        pixmap.fill(self.background_color)
+
         dot_painter = QPainter(pixmap)
+
         for i, process_info in enumerate(self.data):
             if self.rss_max < process_info.rss:
                 self.rss_max = process_info.rss
@@ -1984,8 +2032,15 @@ class ProcessDotsWidget(QLabel):
             else:
                 dot_color = self.choose_user_color(process_info)
 
-            x = (i % self.row_length) * self.spacing + self.spacing
-            y = (i // self.row_length) * self.spacing + self.spacing
+            if self.tree_enabled:
+                tree_row_num, tree_col_num = tree_coords.pop(0)
+                col_num = self.row_length // 2 + tree_col_num
+                x = col_num * self.spacing + self.spacing
+                y = tree_row_num * self.spacing + self.spacing
+                self.tree_map[tree_row_num, col_num] = process_info
+            else:
+                x = (i % self.row_length) * self.spacing + self.spacing
+                y = (i // self.row_length) * self.spacing + self.spacing
 
             # Show a wobble if the rss grew or shrunk.
             if process_info.rss_diff > 0:
@@ -2056,6 +2111,12 @@ class ProcessDotsWidget(QLabel):
         local_pos = self.mapFromGlobal(event.globalPos())
         row = (local_pos.y() - self.spacing // 2) // self.spacing
         col = (local_pos.x() - self.spacing // 2) // self.spacing
+        if self.tree_enabled:
+            #print(row,col)
+            coordinates = (row, col)
+            if coordinates in self.tree_map:
+                return self.tree_map[coordinates]
+            return None
         if 0 <= col < self.row_length:
             list_index = row * self.row_length + col
             if 0 <= list_index < len(self.data):
@@ -2074,8 +2135,9 @@ class ProcessDotsWidget(QLabel):
             else:
                 if QToolTip.isVisible():
                     QToolTip.hideText()
-                    #QApplication.processEvents()
+                # Works on X11
                 #QToolTip.showText(event.globalPos(), str(process_info.text(compact=True)), widget=self)
+                # Works on X11 and Wayland?
                 QToolTip.showText(self.mapToGlobal(event.pos()), str(process_info.text(compact=True)), widget=self)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -2119,6 +2181,9 @@ class MainWindow(QMainWindow):
 
         self.config = Config()
         self.config.refresh()
+
+        process_dots_widget = ProcessDotsWidget(self.config, self)
+        self.setCentralWidget(process_dots_widget)
 
         def new_data(data):
             # debug("New Data", data) if debugging else None
@@ -2194,7 +2259,7 @@ class MainWindow(QMainWindow):
             else:
                 if tray.isVisible():
                     tray.setVisible(False)
-            process_dots_widget.update_settings_from_config()
+            process_dots_widget.update_settings_from_config(self.config)
             update_title_and_tray_indicators()
 
         def settings() -> None:
@@ -2235,8 +2300,6 @@ class MainWindow(QMainWindow):
             self.setGeometry(0, 0, 1000, 900)
             pass
 
-        process_dots_widget = ProcessDotsWidget(self)
-        self.setCentralWidget(process_dots_widget)
 
         self.app_restore_state()
 
