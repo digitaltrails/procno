@@ -2,8 +2,10 @@ Festive tree_enabled option with a dark desktop theme
 -----------------------------------------------------
 Video:
 
-https://user-images.githubusercontent.com/5510901/146845410-d5e3a354-1c12-4930-b9d9-a826f26a7b42.mp4
+https://user-images.githubusercontent.com/5510901/146849073-7d1fe554-128a-4102-a90e-6705d7df490d.mp4
 
-Screenshot:
+Options: tree_enabled, io_enabled
+Desktop: plasma, breeze-dark theme
 
-![Default](screen-shots/Screenshot_festive.png)
+
+
