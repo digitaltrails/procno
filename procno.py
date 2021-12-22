@@ -192,7 +192,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.5'
+PROGRAM_VERSION = '1.1.6'
 
 
 def get_program_name() -> str:
@@ -1592,7 +1592,7 @@ class MainToolBar(QToolBar):
             self.re_search_enabled = enable
             re_action.setIcon(get_icon(ICON_REGEXP_SEARCH if enable else ICON_PLAIN_TEXT_SEARCH))
             tip = tr("Regular expression matching enabled.") if enable else tr("Plain-text matching enabled.")
-            parent.statusBar().showMessage(tip)
+            parent.statusBar().showMessage(tip, 5000)
             search_input.setToolTip(search_tip + "\n" + tip)
 
         re_action.toggled.connect(re_search_toggle)
@@ -2185,8 +2185,12 @@ class MainWindow(QMainWindow):
         process_dots_widget = ProcessDotsWidget(self.config, self)
         self.setCentralWidget(process_dots_widget)
 
+        hostname = os.uname()[1]
+
         def new_data(data):
             # debug("New Data", data) if debugging else None
+            self.normal_status_label.setText("{h}, {c} processes, loadavg 1m:{a[0]} 5m:{a[1]} 15m:{a[2]}".format(
+                h=hostname, c=len(data), a=os.getloadavg()))
             process_dots_widget.update_data(data)
 
         process_watcher_task = ProcessWatcherTask()
@@ -2196,13 +2200,16 @@ class MainWindow(QMainWindow):
         info(f"Icon theme path={QIcon.themeSearchPaths()}")
         info(f"Icon theme '{QIcon.themeName()}' >> is_dark_theme()={is_dark_theme()}")
 
-        QGuiApplication.setDesktopFileName('procno')
-        app_name = tr('procno')
+        QGuiApplication.setDesktopFileName(f"procno")
+        app_name = tr(f"procno {hostname}")
         app.setWindowIcon(get_icon(SVG_PROGRAM_ICON_LIGHT))
         app.setApplicationDisplayName(app_name)
         app.setApplicationVersion(PROGRAM_VERSION)
 
-        self.setStatusBar(QStatusBar())
+        self.status_bar = QStatusBar()
+        self.normal_status_label = QLabel()
+        self.status_bar.addWidget(self.normal_status_label)
+        self.setStatusBar(self.status_bar)
 
         self.settings = QSettings('procno.qt.state', 'procno')
 
