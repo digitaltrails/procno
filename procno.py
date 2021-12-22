@@ -173,6 +173,7 @@ import sys
 import textwrap
 import time
 import traceback
+from datetime import timedelta
 from html import escape
 from io import StringIO
 from pathlib import Path
@@ -2189,8 +2190,11 @@ class MainWindow(QMainWindow):
 
         def new_data(data):
             # debug("New Data", data) if debugging else None
-            self.normal_status_label.setText("{h}, {c} processes, loadavg 1m:{a[0]} 5m:{a[1]} 15m:{a[2]}".format(
-                h=hostname, c=len(data), a=os.getloadavg()))
+            if self.isVisible():
+                self.normal_status_label.setText(
+                    "{h}, up {u}, {c} processes, loadavg 1m:{a[0]} 5m:{a[1]} 15m:{a[2]}".format(
+                        h=hostname, c=len(data), a=os.getloadavg(),
+                        u=str(timedelta(seconds=int(time.clock_gettime(time.CLOCK_BOOTTIME))))[0:-3]))
             process_dots_widget.update_data(data)
 
         process_watcher_task = ProcessWatcherTask()
