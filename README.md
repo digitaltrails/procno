@@ -30,7 +30,7 @@ An explanation the video or screenshot:
    (this happens dynamically, so new matching processes will be circled when they start).  Text search becomes
    incremental once more than three characters have been entered.
  * Hovering over a dot brings up a tooltip containing process details.
- * Clicking on a dot brings up a small dialog with processed details that update dynamically.  The dialog
+ * Clicking on a dot brings up a small dialog with process details that update dynamically.  The dialog
    includes an arming switch (a checkbox) that arms a signal dropdown which can be used to signal/terminate
    the process.
  * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised. The notification
@@ -39,6 +39,7 @@ An explanation the video or screenshot:
    to offend its notification status is reset, any subsequent offending will result in fresh notifications.
  * Procno can optionally run out of the system tray. Geometry and configuration is preserved
    across restarts. Procno dynamically adjusts to light and dark desktop themes.
+ * The mouse wheel zooms the view.
 
 Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 

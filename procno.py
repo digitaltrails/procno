@@ -39,7 +39,7 @@ DBUS Notifications as popup messages).  Procno's UI functions as follows:
    (this happens dynamically, so new matching processes will be circled when they start).  Text search becomes
    incremental once more than three characters have been entered.
  * Hovering over a dot brings up a tooltip containing process details.
- * Clicking on a dot brings up a small dialog with processed details that update dynamically.  The dialog
+ * Clicking on a dot brings up a small dialog with process details that update dynamically.  The dialog
    includes an arming switch (a checkbox) that arms a signal dropdown which can be used to signal/terminate
    the process.
  * If a process consumes too much CPU or RSS for too long, a desktop notification will be raised. The notification
@@ -48,6 +48,7 @@ DBUS Notifications as popup messages).  Procno's UI functions as follows:
    to offend its notification status is reset, any subsequent offending will result in fresh notifications.
  * Procno can optionally run out of the system tray. Geometry and configuration is preserved
    across restarts. Procno dynamically adjusts to light and dark desktop themes.
+ * The mouse wheel zooms the view.
 
 Procno is designed to increase awareness of background activity.  Possibilities for it use include:
 
@@ -193,7 +194,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.6'
+PROGRAM_VERSION = '1.1.7'
 
 
 def get_program_name() -> str:
@@ -1874,6 +1875,7 @@ class ProcessDotsWidget(QLabel):
 
     def __init__(self, config: Config, parent: 'MainWindow'):
         super().__init__(parent=parent)
+        self.main_window = parent
         self.setObjectName("process_grid_window")
         self.dot_diameter_key = self.objectName() + ".dot_size"
         self.allocated_position = {}
@@ -1897,7 +1899,7 @@ class ProcessDotsWidget(QLabel):
         self.pi_over_4 = math.pi / 4
         self.gig_rss = 1_000_000_000  # bytes
         self.gig_ring_diameter = self.spacing * 4
-        self.re_target = None
+        self.re_target = self.last_re_target = None
         self.setAlignment(Qt.AlignTop)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.setScaledContents(False)
@@ -1913,6 +1915,7 @@ class ProcessDotsWidget(QLabel):
         self.background_color = QColor(0xffffff)
         self.update_settings_from_config(config)
         parent.signal_theme_change.connect(self.apply_theme_change)
+
 
     def apply_theme_change(self):
         #print('rssl', self.rss_color.lightness(), self.rss_color.value())
@@ -1963,7 +1966,7 @@ class ProcessDotsWidget(QLabel):
             # debug("not visible") if debugging else None
         self.signal_new_data.emit()
 
-    def highlight_matches(self, text: str, re_enabled: bool):
+    def set_re_match(self, text: str, re_enabled: bool):
         if text is None or len(text) < 2:
             self.re_target = None
         else:
@@ -2018,6 +2021,7 @@ class ProcessDotsWidget(QLabel):
         pixmap.fill(self.background_color)
 
         dot_painter = QPainter(pixmap)
+        match_count = 0
 
         for i, process_info in enumerate(self.data):
             if self.rss_max < process_info.rss:
@@ -2100,6 +2104,7 @@ class ProcessDotsWidget(QLabel):
             if self.re_target is not None:
                 text = str(process_info)
                 if self.re_target.search(text) is not None:
+                    match_count += 1
                     dot_painter.setPen(match_highlight_pen)
                     dot_painter.setOpacity(1.0)
                     dot_painter.drawEllipse(x - match_ring_diameter // 2, y - match_ring_diameter // 2,
@@ -2107,6 +2112,14 @@ class ProcessDotsWidget(QLabel):
             # process_info.previous_paint_values = paint_values
         dot_painter.end()
         self.setPixmap(pixmap)
+        if self.re_target is None:
+            self.last_re_target = None
+        elif self.re_target != self.last_re_target:
+            self.main_window.status_bar.showMessage(
+                tr("Matched {} processes.").format(match_count) if match_count != 0 else tr("No processes matched."),
+                5000)
+            self.last_re_target = self.re_target
+
 
     def get_process_info(self, event: QMouseEvent):
         local_pos = self.mapFromGlobal(event.globalPos())
@@ -2192,7 +2205,8 @@ class MainWindow(QMainWindow):
             # debug("New Data", data) if debugging else None
             if self.isVisible():
                 self.normal_status_label.setText(
-                    "{h}, up {u}, {c} processes, loadavg 1m:{a[0]} 5m:{a[1]} 15m:{a[2]}".format(
+                    tr("\u25B3 Host: {h} \u25F4 Uptime: {u} \u25CB {c} processes \u25B7 loadavg 1m:{a[0]} \u25B9 5m:{"
+                       "a[1]} \u25B9 15m:{a[2]}").format(
                         h=hostname, c=len(data), a=os.getloadavg(),
                         u=str(timedelta(seconds=int(time.clock_gettime(time.CLOCK_BOOTTIME))))[0:-3]))
             process_dots_widget.update_data(data)
@@ -2282,7 +2296,7 @@ class MainWindow(QMainWindow):
             parent=self)
 
         def search(text: str, re_enabled: bool):
-            process_dots_widget.highlight_matches(text, re_enabled)
+            process_dots_widget.set_re_match(text, re_enabled)
 
         tool_bar = MainToolBar(
             run_func=toggle_listener,
