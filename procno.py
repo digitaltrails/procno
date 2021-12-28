@@ -194,7 +194,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.1.7'
+PROGRAM_VERSION = '1.2.0'
 
 
 def get_program_name() -> str:

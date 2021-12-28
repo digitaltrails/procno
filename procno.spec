@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.1.7
+Version: 1.2.0
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
@@ -81,7 +81,8 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 %{_datadir}/icons/hicolor/64x64/apps/%{name}.png
 
 %changelog
-
+* Wed Dec 29 2021 Michael Hamilton <michael@actrix.gen.nz>
+- Handle lack of a DBUS notification service. 1.2.0
 * Thu Dec 24 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Status bar info inprovments, display match count.  1.1.7
 * Thu Dec 23 2021 Michael Hamilton <michael@actrix.gen.nz>
