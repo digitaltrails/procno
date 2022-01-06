@@ -2259,6 +2259,10 @@ class MainWindow(QMainWindow):
         app.setApplicationDisplayName(app_name)
         app.setApplicationVersion(PROGRAM_VERSION)
 
+        global is_wayland
+        is_wayland = QGuiApplication.platformName() == "wayland"
+        debug("is_wayland", is_wayland) if debugging else None
+
         self.status_bar = QStatusBar()
         self.normal_status_label = QLabel()
         self.status_bar.addWidget(self.normal_status_label)
