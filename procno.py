@@ -253,6 +253,7 @@ root_user_color = 0xd2d2d2
 '''
 
 ERROR_DBUS_NOTIFICATIONS_UNAVAILABLE = "DBUS notification service unavailable"
+ERROR_DBUS_NOTIFICATION_FAILED = "DBUS notification failed"
 
 ICON_HELP_ABOUT = "help-about"
 ICON_HELP_CONTENTS = "help-contents"
@@ -997,12 +998,15 @@ class ProcessWatcher:
                 proc_info.pid,
                 proc_info.comm,
                 ' '.join(proc_info.cmdline))
-            proc_info.burn_notified_id = notifier.notify_desktop(
-                app_name=app_name,
-                summary=summary,
-                message=message,
-                timeout=self.notification_timeout_millis,
-                replace_id=proc_info.burn_notified_id)
+            try:
+                proc_info.burn_notified_id = notifier.notify_desktop(
+                    app_name=app_name,
+                    summary=summary,
+                    message=message,
+                    timeout=self.notification_timeout_millis,
+                    replace_id=proc_info.burn_notified_id)
+            except dbus.exceptions.DBusException as e:
+                self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
     def notify_rss_growing(self, proc_info: ProcessInfo):
         if self.notifications_enabled:
@@ -2027,6 +2031,9 @@ class ProcessDotsWidget(QLabel):
         # rss_ring_area_unit = Area of the Gig ring divided by gig_rss (Kbytes quantity)
         rss_ring_area_unit = self.pi_over_4 * (self.gig_ring_diameter ** 2) / self.gig_rss
         rss_ring_pen = QPen(self.rss_color)
+        rss_ring_growing_pen = QPen()
+        rss_ring_growing_pen.setWidth(4)
+        rss_ring_growing_pen.setColor(QColor(0xff0000))
         rss_ring_pen.setStyle(Qt.DashLine)
         rss_ring_pen.setWidth(2 if self.rss_color.lightness() > 128 else 1)
 
@@ -2080,7 +2087,7 @@ class ProcessDotsWidget(QLabel):
 
             dot_diameter = self.dot_diameter + adjust_size
 
-            ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.rss) / self.pi_over_4))
+            rss_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.rss) / self.pi_over_4))
 
             # if process_info.previous_paint_values != paint_values:
             # Need to paint everything in case the canvas has been cleared for some reason
@@ -2089,10 +2096,10 @@ class ProcessDotsWidget(QLabel):
             dot_painter.setBrush(dot_color)
             dot_painter.drawEllipse(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter)
 
-            dot_painter.setPen(rss_ring_pen)
+            dot_painter.setPen(rss_ring_pen if process_info.rss_growing_seconds < 4 else rss_ring_growing_pen)
             dot_painter.setBrush(Qt.NoBrush)
             dot_painter.setOpacity(0.4)
-            dot_painter.drawEllipse(x - ring_diameter // 2, y - ring_diameter // 2, ring_diameter, ring_diameter)
+            dot_painter.drawEllipse(x - rss_ring_diameter // 2, y - rss_ring_diameter // 2, rss_ring_diameter, rss_ring_diameter)
 
             if uss_enabled and process_info.uss != 0:
                 uss_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.uss) / self.pi_over_4))
