@@ -2096,7 +2096,7 @@ class ProcessDotsWidget(QLabel):
             dot_painter.setBrush(dot_color)
             dot_painter.drawEllipse(x - dot_diameter // 2, y - dot_diameter // 2, dot_diameter, dot_diameter)
 
-            dot_painter.setPen(rss_ring_pen if process_info.rss_growing_seconds < 4 else rss_ring_growing_pen)
+            dot_painter.setPen(rss_ring_pen if process_info.rss_growing_seconds == 0 else rss_ring_growing_pen)
             dot_painter.setBrush(Qt.NoBrush)
             dot_painter.setOpacity(0.4)
             dot_painter.drawEllipse(x - rss_ring_diameter // 2, y - rss_ring_diameter // 2, rss_ring_diameter, rss_ring_diameter)
