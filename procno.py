@@ -1905,7 +1905,11 @@ class ProcessControlWidget(QDialog):
             text += extra_text
         except (psutil.AccessDenied, psutil.NoSuchProcess) as e:
             pass
+        preserve_vscroll = self.text_view.verticalScrollBar().value()
+        preserve_hscroll = self.text_view.horizontalScrollBar().value()
         self.text_view.setText(text)
+        self.text_view.verticalScrollBar().setValue(preserve_vscroll)
+        self.text_view.horizontalScrollBar().setValue(preserve_hscroll)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         try:
