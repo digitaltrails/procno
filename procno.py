@@ -194,7 +194,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.2.0'
+PROGRAM_VERSION = '1.2.5'
 
 
 def get_program_name() -> str:
@@ -780,6 +780,7 @@ class ProcessInfo:
         self.user_color = None
         self.grow_notified_id = self.burn_notified_id = 0
         self.alive = True
+        self.psutil_process = process
 
     def updated(self, process: psutil.Process, cpu_burn_ratio, rss_exceeded_mbytes):
         # Trying to be frugal, not copying to a new ProcInfo, might mean the GUI sees the object as it's
@@ -1788,10 +1789,12 @@ class ProcessControlWidget(QDialog):
         text_view.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         text_view.setReadOnly(True)
         text_view.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        text_view.setMinimumWidth(800)
+        text_view.setMinimumHeight(350)
         text = str(process_info)
-        text_view.setText(text)
-        layout.addWidget(text_view)
         self.text_view = text_view
+        self.update_data()
+        layout.addWidget(text_view)
 
         button_box = QWidget()
         button_box_layout = QHBoxLayout()
@@ -1890,10 +1893,25 @@ class ProcessControlWidget(QDialog):
         return
 
     def update_data(self):
-        self.text_view.setText(str(self.process_info))
+        text = str(self.process_info)
+        psutil_process = self.process_info.psutil_process
+        try:
+            extra_text = "\nOpen Files:"
+            for fd_info in psutil_process.open_files():
+                extra_text += '\n  ' + str(fd_info)[15:-1]
+            extra_text += "\nConnections:"
+            for conn_info in psutil_process.connections():
+                extra_text += '\n  ' + str(conn_info)[6:-1]
+            text += extra_text
+        except (psutil.AccessDenied, psutil.NoSuchProcess) as e:
+            pass
+        self.text_view.setText(text)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        del(ProcessControlWidget.instance_map[self.process_info.pid])
+        try:
+            del(ProcessControlWidget.instance_map[self.process_info.pid])
+        except KeyError:
+            pass
         event.accept()
 
 
@@ -2077,6 +2095,15 @@ class ProcessDotsWidget(QLabel):
                 x = (i % self.row_length) * self.spacing + self.spacing
                 y = (i // self.row_length) * self.spacing + self.spacing
 
+            if self.re_target is not None:
+                text = str(process_info)
+                if self.re_target.search(text) is not None:
+                    match_count += 1
+                    dot_painter.setPen(match_highlight_pen)
+                    dot_painter.setOpacity(1.0)
+                    dot_painter.drawEllipse(x - match_ring_diameter // 2, y - match_ring_diameter // 2,
+                                            match_ring_diameter, match_ring_diameter)
+
             # Show a wobble if the rss grew or shrunk.
             if process_info.rss_diff > 0:
                 adjust_size = wobble_size
@@ -2084,6 +2111,8 @@ class ProcessDotsWidget(QLabel):
                 adjust_size = -wobble_size
             else:
                 adjust_size = 0
+
+
 
             dot_diameter = self.dot_diameter + adjust_size
 
@@ -2131,14 +2160,6 @@ class ProcessDotsWidget(QLabel):
                     dot_painter.drawEllipse(x + self.spacing // 2 - self.io_dot_diameter * 2, y - self.spacing // 2,
                                             self.io_dot_diameter, self.io_dot_diameter)
 
-            if self.re_target is not None:
-                text = str(process_info)
-                if self.re_target.search(text) is not None:
-                    match_count += 1
-                    dot_painter.setPen(match_highlight_pen)
-                    dot_painter.setOpacity(1.0)
-                    dot_painter.drawEllipse(x - match_ring_diameter // 2, y - match_ring_diameter // 2,
-                                            match_ring_diameter, match_ring_diameter)
             # process_info.previous_paint_values = paint_values
         dot_painter.end()
         self.setPixmap(pixmap)

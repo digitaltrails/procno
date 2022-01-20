@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.2.0
+Version: 1.2.5
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
@@ -81,6 +81,8 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 %{_datadir}/icons/hicolor/64x64/apps/%{name}.png
 
 %changelog
+* Thu Jan 20 2022 Michael Hamilton <michael@actrix.gen.nz>
+- Display rolling list of open files in process control popup. 1.2.5
 * Wed Dec 29 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Handle lack of a DBUS notification service. 1.2.0
 * Thu Dec 24 2021 Michael Hamilton <michael@actrix.gen.nz>
