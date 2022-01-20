@@ -64,6 +64,9 @@ Procno can optionally report some other process metrics:
     are continually doing some amount of I/O, so perhaps this is not that useful, although a
     continuous-on indicator may be an indication of pressure in some circumstances.  Access to
     I/O read/write counts is restricted, I/O indicators will only be shown for your own processes.
+  * The process-view/control dialog will list the open files and connections. Access to
+    this info is restricted, this means files and connections will only be shown for
+    your own processes.
 
 
 Getting Started
