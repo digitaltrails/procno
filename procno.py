@@ -194,7 +194,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.2.5'
+PROGRAM_VERSION = '1.2.6'
 
 
 def get_program_name() -> str:
@@ -850,6 +850,7 @@ class ProcessInfo:
         cmdline_text = str(self.cmdline)
         if compact and len(cmdline_text) > 30:
             cmdline_text = cmdline_text[0:30] + '..'
+        report_io = io_indicators_enabled and (self.read_count > 0 or self.write_count > 0)
         finished = ' \u25b7Finished\u25c1' if not self.alive else ''
         return \
             f"PID: {self.pid}{finished}\ncomm: {self.comm}\n" \
@@ -858,7 +859,7 @@ class ProcessInfo:
             f"RSS/MEM: {self.rss_current_percent_of_system_vm:5.2f}% rss: {self.rss / 1_000_000:.3f} Mbytes\n" + \
             (f"USS: {self.uss}\n" if uss_enabled else '') + \
             (f"Shared: {self.shared}\n" if shared_enabled else '') + \
-            (f"Reads: {self.read_count} Writes: {self.write_count}\n" if io_indicators_enabled else '') + \
+            (f"Reads: {self.read_count} Writes: {self.write_count}\n" if report_io else '') + \
             f"Started: {self.start_time_text}\n" + \
             (f"Finished {self.end_time_text}\n" if not self.alive else '') + \
             f"Real_UID: {self.real_uid} User={self.username}" + \
