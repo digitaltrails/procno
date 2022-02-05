@@ -694,35 +694,57 @@ def get_icon(source) -> QIcon:
 
 class NotifyFreeDesktop:
 
-    def __init__(self):
+    NO_MORE_NOTIFICATIONS = -1
+
+    def __init__(self, action_request_handler: callable):
         self.notify_interface = dbus.Interface(
             object=dbus.SessionBus(mainloop=DBusGMainLoop(set_as_default=True)).get_object(
                 "org.freedesktop.Notifications",
                 "/org/freedesktop/Notifications"),
             dbus_interface="org.freedesktop.Notifications")
 
-        self.message_id_map: Mapping[int, int] = {}
+        self.message_id_map: Mapping[int, object] = {}
+        self.capabilities = self.notify_interface.GetCapabilities()
+        self.enable_persistence = 'persistence' in self.capabilities
+        self.enable_actions = 'actions' in self.capabilities
+        debug('notify_interface.GetCapabilities', self.capabilities)
 
         def notification_closed_handler(*args, **kwargs):
-            print(args)
+            debug('notification_closed_handler', args)
             message_id = args[0]
             if message_id in self.message_id_map:
+                debug("close for message_id", message_id)
                 del self.message_id_map[message_id]
 
-        self.notify_interface.connect_to_signal("NotificationClosed", notification_closed_handler)
+        def notification_action_invoked_handler(*args, **kwargs):
+            debug('notification_action_invoked_handler', args)
+            message_id = args[0]
+            if message_id in self.message_id_map:
+                action_id = args[1]
+                debug("action for message_id", message_id, action_id)
+                action_request_handler(action_id, self.message_id_map[message_id])
 
-    def notify_desktop(self, app_name: str, summary: str, message: str, timeout: int, replace_id: int = 0) -> int:
+        self.notify_interface.connect_to_signal("NotificationClosed", notification_closed_handler)
+        self.notify_interface.connect_to_signal("ActionInvoked", notification_action_invoked_handler)
+
+    def notify_desktop(self, app_name: str, summary: str, message: str,
+                       timeout: int, replace_id: int = 0, context: object = None) -> int:
         if self.notify_interface is None:
             return -1
         # https://specifications.freedesktop.org/notification-spec/notification-spec-latest.html
         notification_icon = 'dialog-error'
-        action_requests = []
+        action_requests = ['info', tr('More Info')] if self.enable_actions else []
         # extra_hints = {"urgency": 1, "sound-name": "dialog-warning", }
         # Urgency of 2 cannot time out.
         extra_hints = {"urgency": 1}
-        if replace_id != 0 and replace_id not in self.message_id_map:
-            # user has dismissed this message
-            return replace_id
+        if replace_id != 0:
+            if not self.enable_persistence:
+                # No persistence, do not update the existing message (it will probably just general a duplicate)
+                return NotifyFreeDesktop.NO_MORE_NOTIFICATIONS
+            if replace_id not in self.message_id_map:
+                # user has dismissed this message, do not update a message which no longer exists
+                return NotifyFreeDesktop.NO_MORE_NOTIFICATIONS
+
         message_id = self.notify_interface.Notify(app_name,
                                                   replace_id,
                                                   notification_icon,
@@ -731,7 +753,8 @@ class NotifyFreeDesktop:
                                                   action_requests,
                                                   extra_hints,
                                                   timeout)
-        self.message_id_map[message_id] = message_id
+        debug("notification_id ", message_id, "replace_id", replace_id)
+        self.message_id_map[message_id] = context
         return message_id
 
 
@@ -872,7 +895,7 @@ class ProcessInfo:
 
 class ProcessWatcher:
 
-    def __init__(self, supervisor: 'ProcessWatcherTask'):
+    def __init__(self, supervisor: 'ProcessWatcherTask', action_request_handler: callable):
         self.config = Config()
         self.polling_millis: int = 2_000
         self._stop = False
@@ -887,6 +910,7 @@ class ProcessWatcher:
         self.past_data: Mapping[int, ProcessInfo] = {}
         self.update_settings_from_config()
         self.notifier = None
+        self.action_request_handler = action_request_handler
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
@@ -978,14 +1002,14 @@ class ProcessWatcher:
     def get_notifier(self) -> NotifyFreeDesktop:
         if self.notifier is None:
             try:
-                self.notifier = NotifyFreeDesktop()
+                self.notifier = NotifyFreeDesktop(self.action_request_handler)
             except dbus.exceptions.DBusException as e:
                 self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATIONS_UNAVAILABLE, e)
                 self.notifications_enabled = False
         return self.notifier
 
     def notify_cpu_burning(self, proc_info: ProcessInfo):
-        if self.notifications_enabled:
+        if self.notifications_enabled and proc_info.burn_notified_id != NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
             notifier = self.get_notifier()
             if notifier is None:
                 return
@@ -1006,12 +1030,13 @@ class ProcessWatcher:
                     summary=summary,
                     message=message,
                     timeout=self.notification_timeout_millis,
-                    replace_id=proc_info.burn_notified_id)
+                    replace_id=proc_info.burn_notified_id,
+                    context=proc_info)
             except dbus.exceptions.DBusException as e:
                 self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
     def notify_rss_growing(self, proc_info: ProcessInfo):
-        if self.notifications_enabled:
+        if self.notifications_enabled and proc_info.burn_notified_id != NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
             notifier = self.get_notifier()
             if notifier is None:
                 return
@@ -1035,15 +1060,22 @@ class ProcessWatcher:
                 summary=summary,
                 message=message,
                 timeout=self.notification_timeout_millis,
-                replace_id=proc_info.grow_notified_id)
+                replace_id=proc_info.grow_notified_id,
+                context=proc_info)
+
 
 class ProcessWatcherTask(QThread):
     signal_new_data = pyqtSignal(list)
     signal_error = pyqtSignal(str, Exception)
+    signal_action_request = pyqtSignal(str, object)
 
     def __init__(self) -> None:
         super().__init__()
-        self.watcher = ProcessWatcher(self)
+
+        def action_request_handler(action_id: str, process_info: ProcessInfo):
+            self.signal_action_request.emit(action_id, process_info)
+
+        self.watcher = ProcessWatcher(self, action_request_handler=action_request_handler)
 
     def run(self) -> None:
         self.watcher.watch_processes()
@@ -2176,7 +2208,6 @@ class ProcessDotsWidget(QLabel):
                 5000)
             self.last_re_target = self.re_target
 
-
     def get_process_info(self, event: QMouseEvent):
         local_pos = self.mapFromGlobal(event.globalPos())
         row = (local_pos.y() - self.spacing // 2) // self.spacing
@@ -2213,15 +2244,18 @@ class ProcessDotsWidget(QLabel):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         process_info = self.get_process_info(event)
         if process_info is not None:
-            if process_info.pid in ProcessControlWidget.instance_map:
-                info_widget = ProcessControlWidget.instance_map[process_info.pid]
-            else:
-                info_widget = ProcessControlWidget(process_info, self.parent())
-                self.signal_new_data.connect(info_widget.update_data)
-            info_widget.show()
-            info_widget.raise_()
-            info_widget.activateWindow()
-            event.ignore()
+            self.show_process_info(process_info)
+        event.ignore()
+
+    def show_process_info(self, process_info: ProcessInfo):
+        if process_info.pid in ProcessControlWidget.instance_map:
+            info_widget = ProcessControlWidget.instance_map[process_info.pid]
+        else:
+            info_widget = ProcessControlWidget(process_info, self.parent())
+            self.signal_new_data.connect(info_widget.update_data)
+        info_widget.show()
+        info_widget.raise_()
+        info_widget.activateWindow()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         num_pixels = event.pixelDelta()
@@ -2278,9 +2312,13 @@ class MainWindow(QMainWindow):
             if error_str == ERROR_DBUS_NOTIFICATIONS_UNAVAILABLE:
                 enable_notifier(False)
 
+        def handle_action_request(action_id: str, process_info: ProcessInfo):
+            process_dots_widget.show_process_info(process_info)
+
         process_watcher_task = ProcessWatcherTask()
         process_watcher_task.signal_new_data.connect(new_data)
         process_watcher_task.signal_error.connect(handle_watcher_error)
+        process_watcher_task.signal_action_request.connect(handle_action_request)
 
         info('QStyleFactory.keys()=', QStyleFactory.keys())
         info(f"Icon theme path={QIcon.themeSearchPaths()}")
