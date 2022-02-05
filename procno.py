@@ -706,7 +706,8 @@ class NotifyFreeDesktop:
         self.message_id_map: Mapping[int, object] = {}
         self.capabilities = self.notify_interface.GetCapabilities()
         self.enable_persistence = 'persistence' in self.capabilities
-        self.enable_actions = 'actions' in self.capabilities
+        # Persistence and actions together don't seem to always play well - can corrupt the DBUS notifications service.
+        self.enable_actions = not self.enable_persistence and 'actions' in self.capabilities
         debug('notify_interface.GetCapabilities', self.capabilities)
 
         def notification_closed_handler(*args, **kwargs):
