@@ -130,6 +130,12 @@ A suggested accessory is [KDE Connect](https://kdeconnect.kde.org/).  If you ena
 your phone, KDE Connect can forward desktop notifications to the phone.  Use procno to forward Systemd-Journal
 messages to Desktop-Notifications, and use KDE Connect to forward them to your phone.
 
+Debugging Tools
+===============
+
+* dbus-monitor --session interface=org.freedesktop.Notifications
+* d-feet
+* gdbus monitor --session --dest org.freedesktop.Notifications
 
 Procno Copyright (C) 2021 Michael Hamilton
 ===========================================
@@ -194,8 +200,10 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.2.6'
+PROGRAM_VERSION = '1.2.7'
 
+# On Plasma Wayland the system tray may not be immediately available at login - so keep trying for...
+SYSTEM_TRAY_WAIT_SECONDS = 20
 
 def get_program_name() -> str:
     return Path(sys.argv[0]).stem
@@ -207,7 +215,7 @@ ABOUT_TEXT = f"""
 <p>
 A Systemd-process viewer with Freedesktop-Notifications forwarding.
 <p>
-Visit <a href="https://github.com/digitaltrails/{get_program_name()}">https://github.com/digitaltrails/{get_program_name()}</a> for 
+Visit <a href="https://github.com/digitaltrails/{get_program_name()}">https://github.com/digitaltrails/{get_program_name()}</a> for
 more details.
 <p><p>
 
@@ -332,8 +340,8 @@ SVG_TOOLBAR_HAMBURGER_MENU = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox
       }
       </style>
   </defs>
- <path 
-     style="fill:currentColor;fill-opacity:1;stroke:none" 
+ <path
+     style="fill:currentColor;fill-opacity:1;stroke:none"
      d="m3 5v2h16v-2h-16m0 5v2h16v-2h-16m0 5v2h16v-2h-16" class="ColorScheme-Text" />
 </svg>
 """
@@ -693,7 +701,6 @@ def get_icon(source) -> QIcon:
 
 
 class NotifyFreeDesktop:
-
     NO_MORE_NOTIFICATIONS = -1
 
     def __init__(self, action_request_handler: callable):
@@ -737,10 +744,10 @@ class NotifyFreeDesktop:
         action_requests = ['info', tr('More Info')] if self.enable_actions else []
         # extra_hints = {"urgency": 1, "sound-name": "dialog-warning", }
         # Urgency of 2 cannot time out.
-        extra_hints = {"urgency": 1}
+        extra_hints = {"urgency": '2'}
         if replace_id != 0:
             if not self.enable_persistence:
-                # No persistence, do not update the existing message (it will probably just general a duplicate)
+                # No persistence, do not update the existing message (it will probably just generate a duplicate)
                 return NotifyFreeDesktop.NO_MORE_NOTIFICATIONS
             if replace_id not in self.message_id_map:
                 # user has dismissed this message, do not update a message which no longer exists
@@ -790,7 +797,9 @@ class ProcessInfo:
             self.uss = self.access_uss(process)
         self.new_process = new_process
         self.cpu_burn_seconds = 0
+        self.cpu_is_burning = False
         self.rss_growing_seconds = 0
+        self.rss_is_growing = False
         self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
         try:
             self.username = pwd.getpwuid(int(self.real_uid)).pw_name
@@ -803,6 +812,7 @@ class ProcessInfo:
             self.effective_username = None
         self.user_color = None
         self.grow_notified_id = self.burn_notified_id = 0
+        self.grow_start_time = self.burn_start_time = 0
         self.alive = True
         self.psutil_process = process
 
@@ -840,19 +850,36 @@ class ProcessInfo:
         # if self.current_cpu_percent > 95:
         #    print(self.pid, self.current_cpu_percent, cpu_diff / system_ticks_per_second, elapsed_seconds)
         if self.current_cpu_percent >= cpu_burn_ratio:
+            if not self.cpu_is_burning:
+                # New incident for this process
+                self.cpu_is_burning = True
+                self.cpu_burn_seconds = 0
+                self.burn_start_time = time.strftime('%Y-%m-%d %H:%M:%S')
             self.cpu_burn_seconds += elapsed_seconds
         else:
-            self.cpu_burn_seconds = 0
-            self.burn_notified_id = 0
+            # Clear past incident
+            self.cpu_is_burning = False
+            if self.burn_notified_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
+                # Reenabled notifications for furture incidents
+                self.burn_notified_id = 0
         self.rss_diff = rss_diff
         # Don't do unnecessary expensive math - this is called a lot.
+
         if self.rss_diff != 0:
             self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
         if rss_diff > 0 and rss > rss_exceeded_mbytes * 1_000_000:
+            if not self.rss_is_growing:
+                # New incident for this process
+                self.rss_is_growing = True
+                self.rss_growing_seconds = 0
+                self.grow_start_time = time.strftime('%Y-%m-%d %H:%M:%S')
             self.rss_growing_seconds += elapsed_seconds
         else:
-            self.rss_growing_seconds = 0
-            self.grow_notified_id = 0
+            # Clear past incident
+            self.rss_is_growing = False
+            if self.grow_notified_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
+                # Reenabled notifications for future incidents
+                self.grow_notified_id = 0
         return self
 
     def access_io_counters(self, process):
@@ -912,6 +939,7 @@ class ProcessWatcher:
         self.update_settings_from_config()
         self.notifier = None
         self.action_request_handler = action_request_handler
+        self.dynamically_refresh_notifications = True
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
@@ -988,16 +1016,28 @@ class ProcessWatcher:
                 else:
                     proc_info = ProcessInfo(process, initialised)
                     self.past_data[pid] = proc_info
-                if proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
+                if proc_info.cpu_is_burning and proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
                     self.notify_cpu_burning(proc_info)
-                if proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
+                elif proc_info.burn_notified_id > 0:
+                    self.notify_cpu_burning(proc_info, stopped_burning=True)
+                if proc_info.rss_is_growing and proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
                     self.notify_rss_growing(proc_info)
+                elif proc_info.grow_notified_id > 0:
+                    self.notify_rss_growing(proc_info, stopped_growing=True)
                 data.append(proc_info)
         for pid in dead_set:
             dead_process = self.past_data[pid]
             dead_process.alive = False
             dead_process.end_time_text = time.strftime("%Y-%m-%d %H:%M:%S")
-            del(self.past_data[pid])
+            if self.dynamically_refresh_notifications:
+                if dead_process.burn_notified_id > 0:
+                    debug("dead burner", dead_process)
+                    self.notify_cpu_burning(dead_process, stopped_burning=True)
+                if dead_process.grow_notified_id > 0:
+                    debug("dead burner", dead_process)
+                    self.notify_rss_growing(dead_process, stopped_growing=True)
+
+            del (self.past_data[pid])
         return data
 
     def get_notifier(self) -> NotifyFreeDesktop:
@@ -1009,7 +1049,12 @@ class ProcessWatcher:
                 self.notifications_enabled = False
         return self.notifier
 
-    def notify_cpu_burning(self, proc_info: ProcessInfo):
+    def state_of_activity(self, ongoing: bool):
+        if self.dynamically_refresh_notifications:
+            return tr(" (continues)") if ongoing else " (ceased)"
+        return ''
+
+    def notify_cpu_burning(self, proc_info: ProcessInfo, stopped_burning=False):
         if self.notifications_enabled and proc_info.burn_notified_id != NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
             notifier = self.get_notifier()
             if notifier is None:
@@ -1019,24 +1064,30 @@ class ProcessWatcher:
                 short_name = short_name[0:18] + '..'
             app_name = "\u25b3 CPU consumption [{}]".format(short_name)
             summary = tr("\u25b6PID={} [{}] High CPU consumption.").format(proc_info.pid, short_name)
-            message = tr("CPU > {:.0f}% for {:.0f} seconds.\npid={}\ncomm={}\ncmdline={}").format(
+            message = tr("CPU > {:.0f}% for {:.0f} seconds{}.\npid={}\ncomm={}\ncmdline={}\nIncident started at {}").format(
                 self.notify_cpu_use_percent,
                 proc_info.cpu_burn_seconds,
+                self.state_of_activity(not stopped_burning),
                 proc_info.pid,
                 proc_info.comm,
-                ' '.join(proc_info.cmdline))
+                ' '.join(proc_info.cmdline),
+                proc_info.burn_start_time)
             try:
+                debug("replace_id", proc_info.burn_notified_id, message)
+
                 proc_info.burn_notified_id = notifier.notify_desktop(
                     app_name=app_name,
                     summary=summary,
                     message=message,
                     timeout=self.notification_timeout_millis,
-                    replace_id=proc_info.burn_notified_id,
+                    replace_id= proc_info.burn_notified_id,
                     context=proc_info)
+                if stopped_burning:
+                    proc_info.burn_notified_id = 0
             except dbus.exceptions.DBusException as e:
                 self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
-    def notify_rss_growing(self, proc_info: ProcessInfo):
+    def notify_rss_growing(self, proc_info: ProcessInfo, stopped_growing=False):
         if self.notifications_enabled and proc_info.burn_notified_id != NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
             notifier = self.get_notifier()
             if notifier is None:
@@ -1048,22 +1099,28 @@ class ProcessWatcher:
             # \U0001F4C8
             summary = tr("\u25b6PID={} [{}] High rss growth.").format(proc_info.pid, short_name)
             message = tr(
-                "rss has been growing for {:.0f} seconds\nRSS={:.0f} Mbytes. {:0.1f}% of memory\n"
-                "pid={}\ncomm={}\ncmdline={}").format(
+                "rss has been growing for {:.0f} seconds{}\nRSS={:.0f} Mbytes. {:0.1f}% of memory\n"
+                "pid={}\ncomm={}\ncmdline={}\nIncident started at  {}").format(
                 proc_info.rss_growing_seconds,
+                self.state_of_activity(not stopped_growing),
                 proc_info.rss / 1_000_000.0,
                 proc_info.rss_current_percent_of_system_vm,
                 proc_info.pid,
                 proc_info.comm,
-                ' '.join(proc_info.cmdline))
-            proc_info.grow_notified_id = notifier.notify_desktop(
-                app_name=app_name,
-                summary=summary,
-                message=message,
-                timeout=self.notification_timeout_millis,
-                replace_id=proc_info.grow_notified_id,
-                context=proc_info)
-
+                ' '.join(proc_info.cmdline),
+                proc_info.grow_start_time)
+            try:
+                proc_info.grow_notified_id = notifier.notify_desktop(
+                    app_name=app_name,
+                    summary=summary,
+                    message=message,
+                    timeout=self.notification_timeout_millis,
+                    replace_id=proc_info.grow_notified_id,
+                    context=proc_info)
+                if stopped_growing:
+                    proc_info.grow_notified_id = 0
+            except dbus.exceptions.DBusException as e:
+                self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
 class ProcessWatcherTask(QThread):
     signal_new_data = pyqtSignal(list)
@@ -1798,7 +1855,6 @@ class MainContextMenu(QMenu):
 
 
 class ProcessControlWidget(QDialog):
-
     instance_map: Mapping[int, 'ProcessControlWidget'] = {}
 
     def __init__(self, process_info: ProcessInfo, parent: QWidget):
@@ -1947,7 +2003,7 @@ class ProcessControlWidget(QDialog):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         try:
-            del(ProcessControlWidget.instance_map[self.process_info.pid])
+            del (ProcessControlWidget.instance_map[self.process_info.pid])
         except KeyError:
             pass
         event.accept()
@@ -1999,9 +2055,8 @@ class ProcessDotsWidget(QLabel):
         self.update_settings_from_config(config)
         parent.signal_theme_change.connect(self.apply_theme_change)
 
-
     def apply_theme_change(self):
-        #print('rssl', self.rss_color.lightness(), self.rss_color.value())
+        # print('rssl', self.rss_color.lightness(), self.rss_color.value())
         if is_dark_theme():
             self.background_color = QColor(0x41474d)  # 41474d 1b1e20
             if self.rss_color.lightness() < 128:
@@ -2073,7 +2128,7 @@ class ProcessDotsWidget(QLabel):
                 coordinates.append((row_num + 1, col_num,))
                 leaf_count += 1
                 if leaf_count >= number_of_leaves:
-                    #print(coordinates)
+                    # print(coordinates)
                     coordinates.reverse()
                     return row_num, coordinates
         return 0, coordinates
@@ -2103,7 +2158,8 @@ class ProcessDotsWidget(QLabel):
             # print(tree_coords)
             pixmap = QPixmap((self.row_length + 1) * self.spacing, self.spacing * (row_count + 3))
         else:
-            pixmap = QPixmap((self.row_length + 1) * self.spacing, self.spacing * ((len(self.data) // self.row_length) + 3))
+            pixmap = QPixmap((self.row_length + 1) * self.spacing,
+                             self.spacing * ((len(self.data) // self.row_length) + 3))
         pixmap.fill(self.background_color)
 
         dot_painter = QPainter(pixmap)
@@ -2150,8 +2206,6 @@ class ProcessDotsWidget(QLabel):
             else:
                 adjust_size = 0
 
-
-
             dot_diameter = self.dot_diameter + adjust_size
 
             rss_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.rss) / self.pi_over_4))
@@ -2166,7 +2220,8 @@ class ProcessDotsWidget(QLabel):
             dot_painter.setPen(rss_ring_pen if process_info.rss_growing_seconds == 0 else rss_ring_growing_pen)
             dot_painter.setBrush(Qt.NoBrush)
             dot_painter.setOpacity(0.4)
-            dot_painter.drawEllipse(x - rss_ring_diameter // 2, y - rss_ring_diameter // 2, rss_ring_diameter, rss_ring_diameter)
+            dot_painter.drawEllipse(x - rss_ring_diameter // 2, y - rss_ring_diameter // 2, rss_ring_diameter,
+                                    rss_ring_diameter)
 
             if uss_enabled and process_info.uss != 0:
                 uss_ring_diameter = int(math.sqrt((rss_ring_area_unit * process_info.uss) / self.pi_over_4))
@@ -2214,7 +2269,7 @@ class ProcessDotsWidget(QLabel):
         row = (local_pos.y() - self.spacing // 2) // self.spacing
         col = (local_pos.x() - self.spacing // 2) // self.spacing
         if self.tree_enabled:
-            #print(row,col)
+            # print(row,col)
             coordinates = (row, col)
             if coordinates in self.tree_map:
                 return self.tree_map[coordinates]
@@ -2235,10 +2290,10 @@ class ProcessDotsWidget(QLabel):
             if process_info is None:
                 QToolTip.hideText()
             else:
-                #if QToolTip.isVisible():
+                # if QToolTip.isVisible():
                 #    QToolTip.hideText()
                 # Works on X11
-                #QToolTip.showText(event.globalPos(), str(process_info.text(compact=True)), widget=self)
+                # QToolTip.showText(event.globalPos(), str(process_info.text(compact=True)), widget=self)
                 # Works on X11 and Wayland?
                 QToolTip.showText(self.mapToGlobal(event.pos()), str(process_info.text(compact=True)), widget=self)
 
@@ -2272,6 +2327,22 @@ class ProcessDotsWidget(QLabel):
         self.parent().statusBar().showMessage(tr("Dot diameter {}").format(self.dot_diameter), 500)
         event.accept()
 
+
+wait_for_system_tray = True
+
+
+def is_system_tray_available():
+    # Only wait the first time called
+    global wait_for_system_tray
+    if wait_for_system_tray:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            print("WARNING: no system tray, waiting to see if one becomes available.")
+            for i in range(0, SYSTEM_TRAY_WAIT_SECONDS):
+                if QSystemTrayIcon.isSystemTrayAvailable():
+                    break
+                time.sleep(1)
+    wait_for_system_tray = False
+    return QSystemTrayIcon.isSystemTrayAvailable()
 
 class MainWindow(QMainWindow):
     signal_theme_change = pyqtSignal()
@@ -2330,6 +2401,8 @@ class MainWindow(QMainWindow):
         app.setWindowIcon(get_icon(SVG_PROGRAM_ICON_LIGHT))
         app.setApplicationDisplayName(app_name)
         app.setApplicationVersion(PROGRAM_VERSION)
+        # Make sure all icons use HiDPI - toolbars don't by default, so force it.
+        app.setAttribute(Qt.AA_UseHighDpiPixmaps)
 
         global is_wayland
         is_wayland = QGuiApplication.platformName() == "wayland"
@@ -2435,7 +2508,6 @@ class MainWindow(QMainWindow):
             # self.config_dock_container.setGeometry(x // 2 - 150 - 2 * x // 3, y // 3, x // 3, y // 2)
             self.setGeometry(0, 0, 1000, 900)
             pass
-
 
         self.app_restore_state()
 

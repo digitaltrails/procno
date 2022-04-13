@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.2.6
+Version: 1.2.7
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
