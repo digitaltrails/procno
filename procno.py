@@ -205,6 +205,7 @@ PROGRAM_VERSION = '1.2.7'
 # On Plasma Wayland the system tray may not be immediately available at login - so keep trying for...
 SYSTEM_TRAY_WAIT_SECONDS = 20
 
+
 def get_program_name() -> str:
     return Path(sys.argv[0]).stem
 
@@ -718,15 +719,15 @@ class NotifyFreeDesktop:
         debug('notify_interface.GetCapabilities', self.capabilities)
 
         def notification_closed_handler(*args, **kwargs):
-            debug('notification_closed_handler', args)
             message_id = args[0]
+            debug('notification_closed_handler', message_id)
             if message_id in self.message_id_map:
                 debug("close for message_id", message_id)
                 del self.message_id_map[message_id]
 
         def notification_action_invoked_handler(*args, **kwargs):
-            debug('notification_action_invoked_handler', args)
             message_id = args[0]
+            debug('notification_action_invoked_handler', message_id)
             if message_id in self.message_id_map:
                 action_id = args[1]
                 debug("action for message_id", message_id, action_id)
@@ -797,9 +798,8 @@ class ProcessInfo:
             self.uss = self.access_uss(process)
         self.new_process = new_process
         self.cpu_burn_seconds = 0
-        self.cpu_is_burning = False
         self.rss_growing_seconds = 0
-        self.rss_is_growing = False
+        self.incidents = {}
         self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
         try:
             self.username = pwd.getpwuid(int(self.real_uid)).pw_name
@@ -811,8 +811,6 @@ class ProcessInfo:
             self.username = '<no name>'
             self.effective_username = None
         self.user_color = None
-        self.grow_notified_id = self.burn_notified_id = 0
-        self.grow_start_time = self.burn_start_time = 0
         self.alive = True
         self.psutil_process = process
 
@@ -845,41 +843,24 @@ class ProcessInfo:
             self.write_diff = write_count - self.write_count
             self.read_count = read_count
             self.write_count = write_count
+
         # Don't do unnecessary expensive math - this is called a lot.
         self.current_cpu_percent = 0.0 if cpu_diff == 0 else math.ceil(100.0 * cpu_diff / elapsed_seconds)
         # if self.current_cpu_percent > 95:
         #    print(self.pid, self.current_cpu_percent, cpu_diff / system_ticks_per_second, elapsed_seconds)
         if self.current_cpu_percent >= cpu_burn_ratio:
-            if not self.cpu_is_burning:
-                # New incident for this process
-                self.cpu_is_burning = True
-                self.cpu_burn_seconds = 0
-                self.burn_start_time = time.strftime('%Y-%m-%d %H:%M:%S')
             self.cpu_burn_seconds += elapsed_seconds
         else:
-            # Clear past incident
-            self.cpu_is_burning = False
-            if self.burn_notified_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
-                # Reenabled notifications for furture incidents
-                self.burn_notified_id = 0
+            self.cpu_burn_seconds = 0
+
         self.rss_diff = rss_diff
         # Don't do unnecessary expensive math - this is called a lot.
-
         if self.rss_diff != 0:
             self.rss_current_percent_of_system_vm = 100.0 * self.rss / system_vm_bytes
         if rss_diff > 0 and rss > rss_exceeded_mbytes * 1_000_000:
-            if not self.rss_is_growing:
-                # New incident for this process
-                self.rss_is_growing = True
-                self.rss_growing_seconds = 0
-                self.grow_start_time = time.strftime('%Y-%m-%d %H:%M:%S')
             self.rss_growing_seconds += elapsed_seconds
         else:
-            # Clear past incident
-            self.rss_is_growing = False
-            if self.grow_notified_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
-                # Reenabled notifications for future incidents
-                self.grow_notified_id = 0
+            self.rss_growing_seconds = 0
         return self
 
     def access_io_counters(self, process):
@@ -921,6 +902,76 @@ class ProcessInfo:
         return self.text()
 
 
+class GenericIncident:
+    def __init__(self, watcher: "ProcessWatcher", proc_info: ProcessInfo):
+        self.proc_info = proc_info
+        self.short_name = self.proc_info.comm if self.proc_info.comm != '' else self.proc_info.cmdline
+        if len(self.short_name) > 20:
+            self.short_name = self.short_name[0:18] + '..'
+        self.duration_seconds = 0.0
+        self.watcher = watcher
+        self.incident_notification_suppressed = False
+        self.start_time = time.strftime('%Y-%m-%d %H:%M:%S')
+        self.ceased = False
+        self.notify_id = 0
+        self.title_cause = None
+        self.summary_cause = None
+        self.message_cause = None
+
+    def incident_type(self):
+        pass
+
+    def format_state(self):
+        return tr("finished") if not self.proc_info.alive else (tr("ongoing") if not self.ceased else tr("ceased"))
+
+    def format_notification(self) -> (str, str, str):
+        pass
+
+    def update(self, duration_seconds: int):
+        self.duration_seconds = duration_seconds
+
+
+class CpuBurnIncident(GenericIncident):
+    def __init__(self, watcher: "ProcessWatcher", proc_info: ProcessInfo):
+        super().__init__(watcher, proc_info)
+
+    def format_notification(self) -> (str, str, str):
+        app_name = "\u25b3 CPU consumption [{}]".format(self.short_name)
+        summary = tr("\u25b6PID={} [{}] High CPU consumption.").format(self.proc_info.pid, self.short_name)
+        message = tr(
+            "CPU > {:.0f}% for {:.0f} seconds ({}).\npid={}\ncomm={}\ncmdline={}\nIncident started at {}").format(
+            self.watcher.notify_cpu_use_percent,
+            self.duration_seconds,
+            self.format_state(),
+            self.proc_info.pid,
+            self.proc_info.comm,
+            ' '.join(self.proc_info.cmdline),
+            self.start_time)
+        return app_name, summary, message
+
+
+class RssGrowingIncident(GenericIncident):
+    def __init__(self, watcher: "ProcessWatcher", proc_info: ProcessInfo):
+        super().__init__(watcher, proc_info)
+
+    def format_notification(self) -> (str, str, str):
+        app_name = "\u25b3 rss growth [{}]".format(self.short_name)
+        # \U0001F4C8
+        summary = tr("\u25b6PID={} [{}] High rss growth.").format(self.proc_info.pid, self.short_name)
+        message = tr(
+            "rss has been growing for {:.0f} seconds ({})\nRSS={:.0f} Mbytes. {:0.1f}% of memory\n"
+            "pid={}\ncomm={}\ncmdline={}\nIncident started at  {}").format(
+            self.duration_seconds,
+            self.format_state(),
+            self.proc_info.rss / 1_000_000.0,
+            self.proc_info.rss_current_percent_of_system_vm,
+            self.proc_info.pid,
+            self.proc_info.comm,
+            ' '.join(self.proc_info.cmdline),
+            self.start_time)
+        return app_name, summary, message
+
+
 class ProcessWatcher:
 
     def __init__(self, supervisor: 'ProcessWatcherTask', action_request_handler: callable):
@@ -940,6 +991,32 @@ class ProcessWatcher:
         self.notifier = None
         self.action_request_handler = action_request_handler
         self.dynamically_refresh_notifications = True
+
+    def __notify(self, incident: CpuBurnIncident):
+        if self.notifications_enabled:
+            if not incident.incident_notification_suppressed:
+                if incident.notify_id > 0 and not self.dynamically_refresh_notifications:
+                    return
+                notifier = self.get_notifier()
+                if notifier is None:
+                    return
+                try:
+                    app_name, summary, message = incident.format_notification()
+                    debug("replace_id", incident.notify_id, message)
+                    notify_id = notifier.notify_desktop(
+                        app_name=app_name,
+                        summary=summary,
+                        message=message,
+                        timeout=self.notification_timeout_millis,
+                        replace_id=incident.notify_id,
+                        context=self)
+                    if incident.notify_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
+                        debug("Incident suppressed", notify_id)
+                        incident.incident_notification_suppressed = True
+                    else:
+                        incident.notify_id = notify_id
+                except dbus.exceptions.DBusException as e:
+                    self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
@@ -988,19 +1065,36 @@ class ProcessWatcher:
         while True:
             if self.is_stop_requested():
                 return
-            try:
-                if self.config.refresh():
-                    self.update_settings_from_config()
-                    initialised = False
-                if self.notifications_enabled and self.notifier is None:
-                    self.get_notifier()
-                data = self.read_data_from_psutil(initialised)
-                initialised = True
-                self.supervisor.new_data(data)
-            except Exception as e:
-                print(e)
-                pass
+            # TODO put back some error handling
+            # try:
+            if self.config.refresh():
+                self.update_settings_from_config()
+                initialised = False
+            if self.notifications_enabled and self.notifier is None:
+                self.get_notifier()
+            data = self.read_data_from_psutil(initialised)
+            initialised = True
+            self.supervisor.new_data(data)
+            # except Exception as e:
+            # print(e)
+            # pass
             time.sleep(self.polling_millis / 1000)
+
+    def handle_incident(self, proc_info: ProcessInfo, incident_type, duration_seconds: int):
+        incident = proc_info.incidents[incident_type] if incident_type in proc_info.incidents else None
+        if incident is None:
+            incident = incident_type(self, proc_info)
+            proc_info.incidents[incident_type] = incident
+        incident.update(duration_seconds)
+        self.__notify(incident)
+
+    def finish_incident(self, proc_info: ProcessInfo, incident_type: str):
+        debug("Incident finished")
+        incident = proc_info.incidents[incident_type] if incident_type in proc_info.incidents else None
+        if incident is not None:
+            incident.ceased = True
+            self.__notify(incident)
+            del proc_info.incidents[incident_type]
 
     def read_data_from_psutil(self, initialised):
         data = []
@@ -1016,29 +1110,33 @@ class ProcessWatcher:
                 else:
                     proc_info = ProcessInfo(process, initialised)
                     self.past_data[pid] = proc_info
-                if proc_info.cpu_is_burning and proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
-                    self.notify_cpu_burning(proc_info)
-                elif proc_info.burn_notified_id > 0:
-                    self.notify_cpu_burning(proc_info, stopped_burning=True)
-                if proc_info.rss_is_growing and proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
-                    self.notify_rss_growing(proc_info)
-                elif proc_info.grow_notified_id > 0:
-                    self.notify_rss_growing(proc_info, stopped_growing=True)
+
+                if proc_info.cpu_burn_seconds >= self.notify_cpu_use_seconds:
+                    self.handle_incident(proc_info, CpuBurnIncident, proc_info.cpu_burn_seconds)
+                elif CpuBurnIncident in proc_info.incidents:
+                    self.finish_incident(proc_info, CpuBurnIncident)
+
+                if proc_info.rss_growing_seconds >= self.notify_rss_growing_seconds:
+                    self.handle_incident(proc_info, RssGrowingIncident, proc_info.rss_growing_seconds)
+                elif RssGrowingIncident in proc_info.incidents:
+                    self.finish_incident(proc_info, RssGrowingIncident)
+
                 data.append(proc_info)
+        self.cleanup_dead_processes(dead_set)
+        return data
+
+    def cleanup_dead_processes(self, dead_set):
         for pid in dead_set:
             dead_process = self.past_data[pid]
             dead_process.alive = False
             dead_process.end_time_text = time.strftime("%Y-%m-%d %H:%M:%S")
             if self.dynamically_refresh_notifications:
-                if dead_process.burn_notified_id > 0:
-                    debug("dead burner", dead_process)
-                    self.notify_cpu_burning(dead_process, stopped_burning=True)
-                if dead_process.grow_notified_id > 0:
-                    debug("dead burner", dead_process)
-                    self.notify_rss_growing(dead_process, stopped_growing=True)
-
+                debug("dead process", dead_process.pid, dead_process.incidents)
+                if CpuBurnIncident in dead_process.incidents:
+                    self.finish_incident(dead_process, CpuBurnIncident)
+                if RssGrowingIncident in dead_process.incidents:
+                    self.finish_incident(dead_process, RssGrowingIncident)
             del (self.past_data[pid])
-        return data
 
     def get_notifier(self) -> NotifyFreeDesktop:
         if self.notifier is None:
@@ -1054,73 +1152,6 @@ class ProcessWatcher:
             return tr(" (continues)") if ongoing else " (ceased)"
         return ''
 
-    def notify_cpu_burning(self, proc_info: ProcessInfo, stopped_burning=False):
-        if self.notifications_enabled and proc_info.burn_notified_id != NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
-            notifier = self.get_notifier()
-            if notifier is None:
-                return
-            short_name = proc_info.comm if proc_info.comm != '' else proc_info.cmdline
-            if len(short_name) > 20:
-                short_name = short_name[0:18] + '..'
-            app_name = "\u25b3 CPU consumption [{}]".format(short_name)
-            summary = tr("\u25b6PID={} [{}] High CPU consumption.").format(proc_info.pid, short_name)
-            message = tr("CPU > {:.0f}% for {:.0f} seconds{}.\npid={}\ncomm={}\ncmdline={}\nIncident started at {}").format(
-                self.notify_cpu_use_percent,
-                proc_info.cpu_burn_seconds,
-                self.state_of_activity(not stopped_burning),
-                proc_info.pid,
-                proc_info.comm,
-                ' '.join(proc_info.cmdline),
-                proc_info.burn_start_time)
-            try:
-                debug("replace_id", proc_info.burn_notified_id, message)
-
-                proc_info.burn_notified_id = notifier.notify_desktop(
-                    app_name=app_name,
-                    summary=summary,
-                    message=message,
-                    timeout=self.notification_timeout_millis,
-                    replace_id= proc_info.burn_notified_id,
-                    context=proc_info)
-                if stopped_burning:
-                    proc_info.burn_notified_id = 0
-            except dbus.exceptions.DBusException as e:
-                self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
-
-    def notify_rss_growing(self, proc_info: ProcessInfo, stopped_growing=False):
-        if self.notifications_enabled and proc_info.burn_notified_id != NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
-            notifier = self.get_notifier()
-            if notifier is None:
-                return
-            short_name = proc_info.comm if proc_info.comm != '' else proc_info.cmdline
-            if len(short_name) > 20:
-                short_name = short_name[0:18] + '..'
-            app_name = "\u25b3 rss growth [{}]".format(short_name)
-            # \U0001F4C8
-            summary = tr("\u25b6PID={} [{}] High rss growth.").format(proc_info.pid, short_name)
-            message = tr(
-                "rss has been growing for {:.0f} seconds{}\nRSS={:.0f} Mbytes. {:0.1f}% of memory\n"
-                "pid={}\ncomm={}\ncmdline={}\nIncident started at  {}").format(
-                proc_info.rss_growing_seconds,
-                self.state_of_activity(not stopped_growing),
-                proc_info.rss / 1_000_000.0,
-                proc_info.rss_current_percent_of_system_vm,
-                proc_info.pid,
-                proc_info.comm,
-                ' '.join(proc_info.cmdline),
-                proc_info.grow_start_time)
-            try:
-                proc_info.grow_notified_id = notifier.notify_desktop(
-                    app_name=app_name,
-                    summary=summary,
-                    message=message,
-                    timeout=self.notification_timeout_millis,
-                    replace_id=proc_info.grow_notified_id,
-                    context=proc_info)
-                if stopped_growing:
-                    proc_info.grow_notified_id = 0
-            except dbus.exceptions.DBusException as e:
-                self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
 class ProcessWatcherTask(QThread):
     signal_new_data = pyqtSignal(list)
@@ -2343,6 +2374,7 @@ def is_system_tray_available():
                 time.sleep(1)
     wait_for_system_tray = False
     return QSystemTrayIcon.isSystemTrayAvailable()
+
 
 class MainWindow(QMainWindow):
     signal_theme_change = pyqtSignal()
