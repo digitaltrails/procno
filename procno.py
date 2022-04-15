@@ -74,6 +74,30 @@ Procno can optionally report some other process metrics:
     continuous-on indicator may be an indication of pressure in some circumstances.  Access to
     I/O read/write counts is restricted, I/O indicators will only be shown for your own processes.
 
+Experimentation notification options
+------------------------------------
+
+The follow options excercise facilities defined in the
+[Desktop Notifications Specification](https://specifications.freedesktop.org/notification-spec/latest/)
+(https://specifications.freedesktop.org/notification-spec/latest/)
+Some Linux desktops claim to support many of these features, but quite often the implementations are
+buggy or divergent from behaviour specified in the standard.
+
+If the following two options fail to work as expected, it is almost certainly a defect in your
+desktop's support of the standard.  Any bugs raised should be directed to the desktop project concerned
+and not the procno application.
+
+  * notification_updates_enabled: if a desktop supports updatable notifications, notifications
+    will be updated as the incident continues.  On some desktops this can be buggy, for example
+    on KDE/Plasma the desktop sometimes loses track of existing notifications leading to multiple
+    notifications appearing instead of one (a logout may correct the problem).
+  * notification_actions_enabled: an Info button will be added to notifications, when pressed it
+    should callback the application to popup info on the incident's subject process.  On some
+    desktops this too is buggy, and causes even more problems when combined with notification
+    updates.
+
+Despite the results being buggy, I've left the options available, partly as a reference-implementation,
+and partly in the hope that desktops support of these features may improve in time.
 
 Config files
 ------------
@@ -429,7 +453,8 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
                  tr('Process rss consumption threshold (1..100000 Mbytes)'),
                  (1, 100_000)),
     ConfigOption('notify_rss_growing_seconds',
-                 tr('Notify if a process rss continues to grow above the threshold for this amount of time  ({}..{} seconds)'),
+                 tr('Notify if a process rss continues to grow above the threshold for this amount of time  ({}..{} '
+                    'seconds)'),
                  (0, 60)),
     ConfigOption('system_tray_enabled', tr('procno should start minimised in the system-tray.')),
     ConfigOption('start_with_notifications_enabled', tr('procno should start with desktop notifications enabled.')),
@@ -438,6 +463,11 @@ CONFIG_OPTIONS_LIST: List[ConfigOption] = [
     ConfigOption('uss_enabled', tr("Show USS - Unique SS - obtaining USS is expensive CPU wise\n"
                                    "(not available for other user's processes).")),
     ConfigOption('shared_enabled', tr("Show potentially shared.")),
+    ConfigOption('notification_updates_enabled',
+                 tr("Update existing notifications with new info (if supported by desktop, buggy on some desktops).")),
+    ConfigOption('notification_actions_enabled',
+                 tr("Info button on notifications (if supported by desktop, buggy on some desktops, buggy on some "
+                    "desktops when combined with update notifications).")),
     ConfigOption('tree_enabled', tr("Festive layout.")),
     ConfigOption('debug_enabled', tr('Enable extra debugging output to standard-out.')),
 ]
@@ -712,10 +742,11 @@ class NotifyFreeDesktop:
             dbus_interface="org.freedesktop.Notifications")
 
         self.message_id_map: Mapping[int, object] = {}
-        self.capabilities = self.notify_interface.GetCapabilities()
-        self.enable_persistence = 'persistence' in self.capabilities
+        self.capabilities = [str(cap) for cap in self.notify_interface.GetCapabilities()]
+        self.supports_persistence = 'persistence' in self.capabilities
         # Persistence and actions together don't seem to always play well - can corrupt the DBUS notifications service.
-        self.enable_actions = not self.enable_persistence and 'actions' in self.capabilities
+        self.supports_actions = not self.supports_persistence and 'actions' in self.capabilities
+        self.supports_actions = 'actions' in self.capabilities
         debug('notify_interface.GetCapabilities', self.capabilities)
 
         def notification_closed_handler(*args, **kwargs):
@@ -737,23 +768,23 @@ class NotifyFreeDesktop:
         self.notify_interface.connect_to_signal("ActionInvoked", notification_action_invoked_handler)
 
     def notify_desktop(self, app_name: str, summary: str, message: str,
-                       timeout: int, replace_id: int = 0, context: object = None) -> int:
+                       timeout: int, replace_id: int = 0, action_requests=[], context: object = None) -> int:
         if self.notify_interface is None:
             return -1
         # https://specifications.freedesktop.org/notification-spec/notification-spec-latest.html
         notification_icon = 'dialog-error'
-        action_requests = ['info', tr('More Info')] if self.enable_actions else []
         # extra_hints = {"urgency": 1, "sound-name": "dialog-warning", }
         # Urgency of 2 cannot time out.
         extra_hints = {"urgency": '2'}
         if replace_id != 0:
-            if not self.enable_persistence:
+            if not self.supports_persistence:
                 # No persistence, do not update the existing message (it will probably just generate a duplicate)
                 return NotifyFreeDesktop.NO_MORE_NOTIFICATIONS
             if replace_id not in self.message_id_map:
                 # user has dismissed this message, do not update a message which no longer exists
                 return NotifyFreeDesktop.NO_MORE_NOTIFICATIONS
-
+        if len(action_requests) > 0 and not self.supports_actions:
+            action_requests = []
         message_id = self.notify_interface.Notify(app_name,
                                                   replace_id,
                                                   notification_icon,
@@ -985,38 +1016,13 @@ class ProcessWatcher:
         self.notify_cpu_use_seconds = 30
         self.notify_rss_exceeded_mbytes = 1000
         self.notify_rss_growing_seconds = 10
+        self.notification_updates_enabled = False
+        self.notification_actions_enabled = False
         self.config.refresh()
         self.past_data: Mapping[int, ProcessInfo] = {}
         self.update_settings_from_config()
         self.notifier = None
         self.action_request_handler = action_request_handler
-        self.dynamically_refresh_notifications = True
-
-    def __notify(self, incident: CpuBurnIncident):
-        if self.notifications_enabled:
-            if not incident.incident_notification_suppressed:
-                if incident.notify_id > 0 and not self.dynamically_refresh_notifications:
-                    return
-                notifier = self.get_notifier()
-                if notifier is None:
-                    return
-                try:
-                    app_name, summary, message = incident.format_notification()
-                    debug("replace_id", incident.notify_id, message)
-                    notify_id = notifier.notify_desktop(
-                        app_name=app_name,
-                        summary=summary,
-                        message=message,
-                        timeout=self.notification_timeout_millis,
-                        replace_id=incident.notify_id,
-                        context=self)
-                    if incident.notify_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
-                        debug("Incident suppressed", notify_id)
-                        incident.incident_notification_suppressed = True
-                    else:
-                        incident.notify_id = notify_id
-                except dbus.exceptions.DBusException as e:
-                    self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
@@ -1049,6 +1055,10 @@ class ProcessWatcher:
         global shared_enabled
         shared_enabled = self.config.getboolean(
             'options', 'shared_enabled', fallback=False)
+        self.notification_updates_enabled = self.config.getboolean(
+            'options', 'notification_updates_enabled', fallback=False)
+        self.notification_actions_enabled = self.config.getboolean(
+            'options', 'notification_actions_enabled', fallback=False)
         if 'debug' in self.config['options']:
             global debugging
             debugging = self.config.getboolean('options', 'debug')
@@ -1060,43 +1070,34 @@ class ProcessWatcher:
     def watch_processes(self):
         self._stop = False
         initialised = len(self.past_data) != 0
-        # Force a test of whether we have a notification service.
-        self.get_notifier()
+        # Force a test of whether we have a notification service. Why?
+        notifier = self.get_notifier()
+        if self.notification_updates_enabled and not notifier.supports_persistence:
+            alert = QMessageBox()
+            alert.setText(tr("Ignoring notification_updates_enabled"))
+            alert.setInformativeText("This desktop does not support notification persistence.")
+            alert.setDetailedText("Supported notification capabilities: {}".format(notifier.capabilities))
+            alert.setIcon(QMessageBox.Critical)
+            alert.exec()
+        if self.notification_actions_enabled and not notifier.supports_actions:
+            alert = QMessageBox()
+            alert.setText(tr("Ignoring notification_actions_enabled"))
+            alert.setInformativeText("This desktop does not support notification actions.")
+            alert.setDetailedText("Supported notification capabilities: {}".format(notifier.capabilities))
+            alert.setIcon(QMessageBox.Critical)
+            alert.exec()
         while True:
             if self.is_stop_requested():
                 return
-            # TODO put back some error handling
-            # try:
             if self.config.refresh():
                 self.update_settings_from_config()
                 initialised = False
-            if self.notifications_enabled and self.notifier is None:
-                self.get_notifier()
-            data = self.read_data_from_psutil(initialised)
+            data = self.process_psutil_info(initialised)
             initialised = True
             self.supervisor.new_data(data)
-            # except Exception as e:
-            # print(e)
-            # pass
             time.sleep(self.polling_millis / 1000)
 
-    def handle_incident(self, proc_info: ProcessInfo, incident_type, duration_seconds: int):
-        incident = proc_info.incidents[incident_type] if incident_type in proc_info.incidents else None
-        if incident is None:
-            incident = incident_type(self, proc_info)
-            proc_info.incidents[incident_type] = incident
-        incident.update(duration_seconds)
-        self.__notify(incident)
-
-    def finish_incident(self, proc_info: ProcessInfo, incident_type: str):
-        debug("Incident finished")
-        incident = proc_info.incidents[incident_type] if incident_type in proc_info.incidents else None
-        if incident is not None:
-            incident.ceased = True
-            self.__notify(incident)
-            del proc_info.incidents[incident_type]
-
-    def read_data_from_psutil(self, initialised):
+    def process_psutil_info(self, initialised):
         data = []
         dead_set = set(self.past_data.keys())
         for process in psutil.process_iter():
@@ -1130,13 +1131,57 @@ class ProcessWatcher:
             dead_process = self.past_data[pid]
             dead_process.alive = False
             dead_process.end_time_text = time.strftime("%Y-%m-%d %H:%M:%S")
-            if self.dynamically_refresh_notifications:
+            if CpuBurnIncident in dead_process.incidents:
                 debug("dead process", dead_process.pid, dead_process.incidents)
-                if CpuBurnIncident in dead_process.incidents:
-                    self.finish_incident(dead_process, CpuBurnIncident)
-                if RssGrowingIncident in dead_process.incidents:
-                    self.finish_incident(dead_process, RssGrowingIncident)
+                self.finish_incident(dead_process, CpuBurnIncident)
+            if RssGrowingIncident in dead_process.incidents:
+                debug("dead process", dead_process.pid, dead_process.incidents)
+                self.finish_incident(dead_process, RssGrowingIncident)
             del (self.past_data[pid])
+
+    def handle_incident(self, proc_info: ProcessInfo, incident_type, duration_seconds: int):
+        incident = proc_info.incidents[incident_type] if incident_type in proc_info.incidents else None
+        if incident is None:
+            incident = incident_type(self, proc_info)
+            proc_info.incidents[incident_type] = incident
+        incident.update(duration_seconds)
+        self.notify(incident)
+
+    def finish_incident(self, proc_info: ProcessInfo, incident_type: str):
+        debug("Incident finished")
+        incident = proc_info.incidents[incident_type] if incident_type in proc_info.incidents else None
+        if incident is not None:
+            incident.ceased = True
+            self.notify(incident)
+            del proc_info.incidents[incident_type]
+
+    def notify(self, incident: CpuBurnIncident):
+        if self.notifications_enabled:
+            if not incident.incident_notification_suppressed:
+                if incident.notify_id > 0 and not self.notification_updates_enabled:
+                    return
+                notifier = self.get_notifier()
+                if notifier is None:
+                    return
+                try:
+                    app_name, summary, message = incident.format_notification()
+                    debug("replace_id", incident.notify_id, message)
+                    notify_id = notifier.notify_desktop(
+                        app_name=app_name,
+                        summary=summary,
+                        message=message,
+                        timeout=self.notification_timeout_millis,
+                        replace_id=incident.notify_id,
+                        action_requests=['info', tr('More Info')] if self.notification_actions_enabled else [],
+                        context=self)
+                    if incident.notify_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
+                        debug("Incident suppressed", notify_id)
+                        incident.incident_notification_suppressed = True
+                    else:
+                        incident.notify_id = notify_id
+                except dbus.exceptions.DBusException as e:
+                    self.notifier = None
+                    self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATION_FAILED, e)
 
     def get_notifier(self) -> NotifyFreeDesktop:
         if self.notifier is None:
@@ -1148,7 +1193,7 @@ class ProcessWatcher:
         return self.notifier
 
     def state_of_activity(self, ongoing: bool):
-        if self.dynamically_refresh_notifications:
+        if self.notification_updates_enabled:
             return tr(" (continues)") if ongoing else " (ceased)"
         return ''
 
