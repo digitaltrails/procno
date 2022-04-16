@@ -1173,7 +1173,7 @@ class ProcessWatcher:
                         timeout=self.notification_timeout_millis,
                         replace_id=incident.notify_id,
                         action_requests=['info', tr('More Info')] if self.notification_actions_enabled else [],
-                        context=self)
+                        context=incident)
                     if incident.notify_id == NotifyFreeDesktop.NO_MORE_NOTIFICATIONS:
                         debug("Incident suppressed", notify_id)
                         incident.incident_notification_suppressed = True
@@ -1186,7 +1186,9 @@ class ProcessWatcher:
     def get_notifier(self) -> NotifyFreeDesktop:
         if self.notifier is None:
             try:
-                self.notifier = NotifyFreeDesktop(self.action_request_handler)
+                def incident_notification_action_handler(action_id: int, incident: GenericIncident):
+                    self.action_request_handler(action_id, incident.proc_info)
+                self.notifier = NotifyFreeDesktop(incident_notification_action_handler)
             except dbus.exceptions.DBusException as e:
                 self.supervisor.signal_error.emit(ERROR_DBUS_NOTIFICATIONS_UNAVAILABLE, e)
                 self.notifications_enabled = False
