@@ -1021,8 +1021,23 @@ class ProcessWatcher:
         self.config.refresh()
         self.past_data: Mapping[int, ProcessInfo] = {}
         self.update_settings_from_config()
-        self.notifier = None
         self.action_request_handler = action_request_handler
+        self.notifier = None
+        self.notifier = self.get_notifier()
+        if self.notification_updates_enabled and not self.notifier.supports_persistence:
+            alert = QMessageBox()
+            alert.setText(tr("Ignoring notification_updates_enabled"))
+            alert.setInformativeText("This desktop does not support notification persistence.")
+            alert.setDetailedText("Supported notification capabilities: {}".format(self.notifier.capabilities))
+            alert.setIcon(QMessageBox.Critical)
+            alert.exec()
+        if self.notification_actions_enabled and not self.notifier.supports_actions:
+            alert = QMessageBox()
+            alert.setText(tr("Ignoring notification_actions_enabled"))
+            alert.setInformativeText("This desktop does not support notification actions.")
+            alert.setDetailedText("Supported notification capabilities: {}".format(self.notifier.capabilities))
+            alert.setIcon(QMessageBox.Critical)
+            alert.exec()
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
@@ -1070,22 +1085,6 @@ class ProcessWatcher:
     def watch_processes(self):
         self._stop = False
         initialised = len(self.past_data) != 0
-        # Force a test of whether we have a notification service. Why?
-        notifier = self.get_notifier()
-        if self.notification_updates_enabled and not notifier.supports_persistence:
-            alert = QMessageBox()
-            alert.setText(tr("Ignoring notification_updates_enabled"))
-            alert.setInformativeText("This desktop does not support notification persistence.")
-            alert.setDetailedText("Supported notification capabilities: {}".format(notifier.capabilities))
-            alert.setIcon(QMessageBox.Critical)
-            alert.exec()
-        if self.notification_actions_enabled and not notifier.supports_actions:
-            alert = QMessageBox()
-            alert.setText(tr("Ignoring notification_actions_enabled"))
-            alert.setInformativeText("This desktop does not support notification actions.")
-            alert.setDetailedText("Supported notification capabilities: {}".format(notifier.capabilities))
-            alert.setIcon(QMessageBox.Critical)
-            alert.exec()
         while True:
             if self.is_stop_requested():
                 return
@@ -2466,11 +2465,6 @@ class MainWindow(QMainWindow):
         def handle_action_request(action_id: str, process_info: ProcessInfo):
             process_dots_widget.show_process_info(process_info)
 
-        process_watcher_task = ProcessWatcherTask()
-        process_watcher_task.signal_new_data.connect(new_data)
-        process_watcher_task.signal_error.connect(handle_watcher_error)
-        process_watcher_task.signal_action_request.connect(handle_action_request)
-
         info('QStyleFactory.keys()=', QStyleFactory.keys())
         info(f"Icon theme path={QIcon.themeSearchPaths()}")
         info(f"Icon theme '{QIcon.themeName()}' >> is_dark_theme()={is_dark_theme()}")
@@ -2573,6 +2567,11 @@ class MainWindow(QMainWindow):
         tray.setIcon(get_icon(SVG_PROGRAM_ICON))
         tray.setContextMenu(app_context_menu)
         self.signal_theme_change.connect(update_title_and_tray_indicators)
+
+        process_watcher_task = ProcessWatcherTask()
+        process_watcher_task.signal_new_data.connect(new_data)
+        process_watcher_task.signal_error.connect(handle_watcher_error)
+        process_watcher_task.signal_action_request.connect(handle_action_request)
 
         enable_listener(True)
         enable_notifier(self.config.getboolean('options', 'start_with_notifications_enabled'))
