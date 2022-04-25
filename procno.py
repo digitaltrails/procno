@@ -1088,12 +1088,16 @@ class ProcessWatcher:
         while True:
             if self.is_stop_requested():
                 return
-            if self.config.refresh():
-                self.update_settings_from_config()
-                initialised = False
-            data = self.process_psutil_info(initialised)
-            initialised = True
-            self.supervisor.new_data(data)
+            try:
+                if self.config.refresh():
+                    self.update_settings_from_config()
+                    initialised = False
+                data = self.process_psutil_info(initialised)
+                initialised = True
+                self.supervisor.new_data(data)
+            except Exception as e:
+                print("ERROR: handled exception:", e)
+                pass
             time.sleep(self.polling_millis / 1000)
 
     def process_psutil_info(self, initialised):
