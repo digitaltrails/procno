@@ -1096,7 +1096,7 @@ class ProcessWatcher:
                 initialised = True
                 self.supervisor.new_data(data)
             except Exception as e:
-                print("ERROR: handled exception:", e)
+                error("watch process handled exception:", e)
                 pass
             time.sleep(self.polling_millis / 1000)
 
