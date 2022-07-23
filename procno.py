@@ -224,7 +224,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.2.7'
+PROGRAM_VERSION = '1.2.8'
 
 # On Plasma Wayland the system tray may not be immediately available at login - so keep trying for...
 SYSTEM_TRAY_WAIT_SECONDS = 20
@@ -1971,26 +1971,9 @@ class ProcessControlWidget(QDialog):
         button_box_layout = QHBoxLayout()
         button_box.setLayout(button_box_layout)
 
-        signal_label = QLabel(tr("Signal:"))
-        signal_label.setEnabled(False)
-
-        allowed_signals = [
-            (signal.SIGHUP, 'SIGHUP'),
-            (signal.SIGTERM, 'SIGTERM'),
-            (signal.SIGINT, 'SIGINT'),
-            (signal.SIGQUIT, 'SIGQUIT'),
-            (signal.SIGKILL, 'SIGKILL'),
-        ]
-        signal_combo_box = QComboBox()
-        signal_combo_box.setEnabled(False)
-        # signal_combo_box.setCurrentIndex(-1)
-        for sig, desc in allowed_signals:
-            signal_combo_box.addItem(desc, sig)
-
-        def signal_process(index: int):
+        def signal_process(sig: int):
             try:
-                os.kill(process_info.pid, signal_combo_box.itemData(index))
-                # signal_combo_box.setCurrentIndex(-1)
+                os.kill(process_info.pid, sig)
             except Exception as e:
                 alert = QMessageBox(parent=self)
                 alert.setText(tr("Failed to signal PID {}").format(process_info.pid))
@@ -1998,12 +1981,49 @@ class ProcessControlWidget(QDialog):
                 alert.setIcon(QMessageBox.Critical)
                 alert.exec()
 
-        signal_combo_box.activated.connect(signal_process)
+        pause_button = QPushButton(tr("Pause"))
+        pause_button.setEnabled(False)
+
+        def pause_process():
+            signal_process(signal.SIGSTOP)
+
+        pause_button.pressed.connect(pause_process)
+
+        continue_button = QPushButton(tr("Continue"))
+        continue_button.setEnabled(False)
+
+        def continue_process():
+            signal_process(signal.SIGCONT)
+
+        continue_button.pressed.connect(continue_process)
+
+        signal_label = QLabel(tr("Signal:"))
+        signal_label.setEnabled(False)
+
+        allowed_signals = [
+            (signal.SIGHUP, tr('SIGHUP (hangup)')),
+            (signal.SIGTERM, tr('SIGTERM (terminate)')),
+            (signal.SIGINT, tr('SIGINT (interrupt)')),
+            (signal.SIGQUIT, tr('SIGQUIT (quit')),
+            (signal.SIGKILL, tr('SIGKILL (kill)')),
+        ]
+        signal_combo_box = QComboBox()
+        signal_combo_box.setEnabled(False)
+        # signal_combo_box.setCurrentIndex(-1)
+        for sig, desc in allowed_signals:
+            signal_combo_box.addItem(desc, sig)
+
+        def combo_signal_process(index: int):
+            signal_process(signal_combo_box.itemData(index))
+
+        signal_combo_box.activated.connect(combo_signal_process)
 
         self.safety_default_color = signal_combo_box.palette().color(QPalette.Base)
         self.safety_text_pair = pad_text([tr('Safe'), tr('Armed')])
 
         def arm_signal_button(enable: bool):
+            pause_button.setEnabled(not enable)
+            continue_button.setEnabled(not enable)
             signal_combo_box.setEnabled(not enable)
             signal_label.setEnabled(not enable)
             # signal_combo_box.setCurrentIndex(-1)
@@ -2018,6 +2038,8 @@ class ProcessControlWidget(QDialog):
         # spacer = QLabel('          ')
         # button_box_layout.addWidget(spacer)
 
+        button_box_layout.addWidget(pause_button)
+        button_box_layout.addWidget(continue_button)
         button_box_layout.addWidget(signal_label)
         button_box_layout.addWidget(signal_combo_box)
         button_box_layout.addWidget(safety_catch)
