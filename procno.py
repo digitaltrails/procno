@@ -2626,12 +2626,14 @@ class MainWindow(QMainWindow):
         sys.exit(rc)
 
     def event(self, event: 'QEvent') -> bool:
-        super().event(event)
-        # ApplicationPaletteChange happens after the new style theme is in use.
-        if event.type() == QEvent.ApplicationPaletteChange:
-            debug(f"ApplicationPaletteChange is_dark_theme() {is_dark_theme()}") if debugging else None
-            self.signal_theme_change.emit()
-        return True
+        try:
+            return super().event(event)
+        finally:
+            # ApplicationPaletteChange happens after the new style theme is in use.
+            if event.type() == QEvent.ApplicationPaletteChange:
+                debug(f"ApplicationPaletteChange is_dark_theme() {is_dark_theme()}") if debugging else None
+                self.signal_theme_change.emit()
+
 
     def closeEvent(self, event: QCloseEvent) -> None:
         debug("closeEvent") if debugging else None
