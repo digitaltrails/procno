@@ -89,11 +89,11 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 - Display rolling list of open files in process control popup. 1.2.5
 * Wed Dec 29 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Handle lack of a DBUS notification service. 1.2.0
-* Thu Dec 24 2021 Michael Hamilton <michael@actrix.gen.nz>
+* Fri Dec 24 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Status bar info inprovments, display match count.  1.1.7
 * Thu Dec 23 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Status bar info, hostname in window title. 1.1.6
-* Mon Dec 21 2021 Michael Hamilton <michael@actrix.gen.nz>
+* Tue Dec 21 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Festive tree. 1.1.5
 * Fri Dec 17 2021 Michael Hamilton <michael@actrix.gen.nz>
 - Wayland compatability tweaks. 1.1.4
