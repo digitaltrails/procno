@@ -803,7 +803,10 @@ class ProcessInfo:
         self.last_update = time.time()
         self.pid = process.pid
         self.real_uid, self.effective_uid, _ = process.uids()
-        self.cmdline = process.cmdline()
+        try:
+            self.cmdline = process.cmdline()
+        except psutil.ZombieProcess:
+            self.cmdline = "(zombie)"
         self.comm = process.name()
         cpu_times = process.cpu_times()
         self.utime = cpu_times.user
