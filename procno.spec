@@ -17,7 +17,7 @@
 #
 
 Name: procno
-Version: 1.2.8
+Version: 1.2.9
 Release: 0
 License: GPL-3.0-or-later
 BuildArch: noarch
@@ -81,6 +81,8 @@ install -m644 %{name}.png %{buildroot}/%{_datadir}/icons/hicolor/64x64/apps
 %{_datadir}/icons/hicolor/64x64/apps/%{name}.png
 
 %changelog
+* Mon Jul 22 2024 Michael Hamilton <michael@actrix.gen.nz>
+- Recover from no dbus notification service. 1.2.9
 * Sat Jul 23 2022 Michael Hamilton <michael@actrix.gen.nz>
 - Add pause and continue buttons. 1.2.7
 * Wed Jan 26 2022 Michael Hamilton <michael@actrix.gen.nz>

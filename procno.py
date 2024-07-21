@@ -224,7 +224,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMessageBox, QLi
     QColorDialog
 from dbus.mainloop.glib import DBusGMainLoop
 
-PROGRAM_VERSION = '1.2.8'
+PROGRAM_VERSION = '1.2.9'
 
 # On Plasma Wayland the system tray may not be immediately available at login - so keep trying for...
 SYSTEM_TRAY_WAIT_SECONDS = 20
@@ -1027,20 +1027,28 @@ class ProcessWatcher:
         self.action_request_handler = action_request_handler
         self.notifier = None
         self.notifier = self.get_notifier()
-        if self.notification_updates_enabled and not self.notifier.supports_persistence:
+        if self.notifier is None:
             alert = QMessageBox()
-            alert.setText(tr("Ignoring notification_updates_enabled"))
-            alert.setInformativeText("This desktop does not support notification persistence.")
-            alert.setDetailedText("Supported notification capabilities: {}".format(self.notifier.capabilities))
+            alert.setText(tr("Notifier initialisation failed"))
+            alert.setInformativeText("Could not initialise a DBUS notifier.")
+            alert.setDetailedText("Maybe this desktop is not properly initialised, maybe try restarting procno.")
             alert.setIcon(QMessageBox.Critical)
             alert.exec()
-        if self.notification_actions_enabled and not self.notifier.supports_actions:
-            alert = QMessageBox()
-            alert.setText(tr("Ignoring notification_actions_enabled"))
-            alert.setInformativeText("This desktop does not support notification actions.")
-            alert.setDetailedText("Supported notification capabilities: {}".format(self.notifier.capabilities))
-            alert.setIcon(QMessageBox.Critical)
-            alert.exec()
+        else:
+            if self.notification_updates_enabled and not self.notifier.supports_persistence:
+                alert = QMessageBox()
+                alert.setText(tr("Ignoring notification_updates_enabled"))
+                alert.setInformativeText("This desktop does not support notification persistence.")
+                alert.setDetailedText("Supported notification capabilities: {}".format(self.notifier.capabilities))
+                alert.setIcon(QMessageBox.Critical)
+                alert.exec()
+            if self.notification_actions_enabled and not self.notifier.supports_actions:
+                alert = QMessageBox()
+                alert.setText(tr("Ignoring notification_actions_enabled"))
+                alert.setInformativeText("This desktop does not support notification actions.")
+                alert.setDetailedText("Supported notification capabilities: {}".format(self.notifier.capabilities))
+                alert.setIcon(QMessageBox.Critical)
+                alert.exec()
 
     def is_notifying(self) -> bool:
         return self.notifications_enabled
