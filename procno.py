@@ -476,7 +476,7 @@ io_indicators_enabled = False
 uss_enabled = False
 shared_enabled = False
 
-debugging = True
+debugging = False
 
 
 def debug(*arg):
@@ -2472,6 +2472,8 @@ class MainWindow(QMainWindow):
 
         self.config = Config()
         self.config.refresh()
+        global debugging
+        debugging = self.config.getboolean('options', 'debug_enabled')
 
         process_dots_widget = ProcessDotsWidget(self.config, self)
         self.setCentralWidget(process_dots_widget)
